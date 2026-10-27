@@ -6,6 +6,18 @@
   const money = (v) => new Intl.NumberFormat("en-MW",{style:"currency",currency:"MWK",maximumFractionDigits:0}).format(Number(v||0));
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const setMessage = (text, error=false) => { $("#message").textContent=text; $("#message").className="message"+(error?" error":""); };
+  async function verifyReturnedPayment() {
+    const params = new URLSearchParams(location.search);
+    const txRef = params.get("tx_ref");
+    if (!txRef) return null;
+    const response = await fetch("/api/public/invoices/" + encodeURIComponent(id) + "/verify-payment", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tx_ref: txRef }), cache: "no-store"
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "We could not verify the payment yet.");
+    return data.status;
+  }
   async function load() {
     try {
       const r=await fetch("/api/public/invoices/"+encodeURIComponent(id),{cache:"no-store"});
@@ -105,14 +117,27 @@
       window.setTimeout(()=>{b.disabled=false;b.textContent="Continue to secure payment →";},15000);
     }catch(err){setMessage(err.message,true);b.disabled=false;b.textContent="Continue to secure payment →";}
   });
-  load();
-  // Payment providers may redirect before their webhook finishes; refresh the verified state briefly.
-  if (new URLSearchParams(location.search).has("payment")) {
+  const returnParams = new URLSearchParams(location.search);
+  if (returnParams.has("payment") || returnParams.has("tx_ref")) {
+    (async () => {
+      try {
+        const status = await verifyReturnedPayment();
+        if (status === "success") setMessage("Payment verified. Refreshing your invoice balance…");
+        else if (status && ["failed", "cancelled", "canceled"].includes(status)) setMessage("This payment was not completed. You can try again.");
+        else setMessage("Checking payment status with PayChangu…");
+      } catch (error) {
+        setMessage("Payment verification is still pending. We’ll keep checking.", false);
+      }
+      await load();
+    })();
     let attempts = 0;
     const timer = setInterval(async () => {
       attempts += 1;
+      try { await verifyReturnedPayment(); } catch (_) {}
       await load();
       if (attempts >= 6) clearInterval(timer);
     }, 4000);
+  } else {
+    load();
   }
 })();
