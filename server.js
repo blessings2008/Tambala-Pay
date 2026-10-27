@@ -249,7 +249,7 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
       const payload = {
         amount: String(amount), currency: invoice.currency || "MWK", tx_ref: txRef,
         first_name: customerParts[0] || "Customer", last_name: customerParts.slice(1).join(" "),
-        callback_url: APP_BASE_URL + "/api/paychangu/return",
+        callback_url: APP_BASE_URL + "/api/paychangu/webhook",
         return_url: APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking",
         customization: { title: "Tambala Pay", description: invoice.invoice_number + " — " + invoice.description }
       };
@@ -364,7 +364,7 @@ app.post("/api/invoices/:id/payments", requireInternalAccess, async (req, res, n
         first_name: String(invoice.customer_name || "Customer").trim().split(/\s+/)[0] || "Customer",
         last_name: String(invoice.customer_name || "").trim().split(/\s+/).slice(1).join(" "),
         email: invoice.customer_email || undefined,
-        callback_url: APP_BASE_URL + "/api/paychangu/return",
+        callback_url: APP_BASE_URL + "/api/paychangu/webhook",
         return_url: APP_BASE_URL + "/?payment=cancelled",
         customization: { title: "Tambala Pay", description: invoice.invoice_number + " — " + invoice.description }
       };
@@ -446,7 +446,7 @@ app.post("/api/requests", requireInternalAccess, async (req, res, next) => {
         first_name: customerName.split(/\s+/)[0] || "Customer",
         last_name: customerName.split(/\s+/).slice(1).join(" "),
         email: customerEmail || undefined,
-        callback_url: APP_BASE_URL + "/api/paychangu/return",
+        callback_url: APP_BASE_URL + "/api/paychangu/webhook",
         return_url: APP_BASE_URL + "/?payment=cancelled",
         customization: { title: "Tambala Pay", description }
       };
