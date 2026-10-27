@@ -302,13 +302,12 @@ app.get("/api/summary", requireInternalAccess, async (req, res, next) => {
   try {
     const result = await pool.query(`
       SELECT
-        COUNT(*)::int AS total_requests,
-        COUNT(*) FILTER (WHERE status = 'paid')::int AS successful_payments,
-        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_payments,
-        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_payments,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0)::numeric(12,2) AS collected_mwk,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)::numeric(12,2) AS pending_mwk
-      FROM payment_requests
+        ((SELECT COUNT(*) FROM invoices) + (SELECT COUNT(*) FROM payment_requests))::int AS total_requests,
+        ((SELECT COUNT(*) FROM invoice_payments WHERE status = 'paid') + (SELECT COUNT(*) FROM payment_requests WHERE status = 'paid'))::int AS successful_payments,
+        ((SELECT COUNT(*) FROM invoice_payments WHERE status = 'pending') + (SELECT COUNT(*) FROM payment_requests WHERE status = 'pending'))::int AS pending_payments,
+        ((SELECT COUNT(*) FROM invoice_payments WHERE status = 'failed') + (SELECT COUNT(*) FROM payment_requests WHERE status = 'failed'))::int AS failed_payments,
+        ((SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE status = 'paid') + (SELECT COALESCE(SUM(amount),0) FROM payment_requests WHERE status = 'paid'))::numeric(12,2) AS collected_mwk,
+        ((SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE status = 'pending') + (SELECT COALESCE(SUM(amount),0) FROM payment_requests WHERE status = 'pending'))::numeric(12,2) AS pending_mwk
     `);
     res.json(result.rows[0]);
   } catch (error) { next(error); }
@@ -398,6 +397,23 @@ app.get("/api/paychangu/return", async (req, res) => {
     }
   }
   res.redirect("/?payment=" + encodeURIComponent(outcome));
+});
+
+app.get("/api/invoice-payments/:id/receipt", requireInternalAccess, async (req, res, next) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.tx_ref, i.invoice_number || ' — ' || i.description AS description,
+        i.customer_name, i.customer_email, p.amount, p.currency, p.status,
+        p.receipt_number, p.provider_reference, p.paid_at
+      FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id
+      WHERE p.id = $1
+    `, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Payment not found." });
+    if (result.rows[0].status !== "paid" || !result.rows[0].receipt_number) {
+      return res.status(409).json({ error: "A receipt is available only after the payment is verified as successful." });
+    }
+    res.json({ receipt: result.rows[0] });
+  } catch (error) { next(error); }
 });
 
 app.get("/api/requests/:id/receipt", requireInternalAccess, async (req, res, next) => {
