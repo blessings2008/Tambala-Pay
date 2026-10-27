@@ -48,19 +48,19 @@
 
         <section class="content-grid">
           <article id="new-request" class="panel create-panel">
-            <div class="panel-heading"><div><div class="eyebrow">COLLECT MONEY</div><h2>Create payment request</h2></div><span class="panel-icon">＋</span></div>
-            <p class="panel-description">Create a request and share the secure PayChangu checkout link with your customer.</p>
+            <div class="panel-heading"><div><div class="eyebrow">COLLECT MONEY</div><h2>Create invoice</h2></div><span class="panel-icon">＋</span></div>
+            <p class="panel-description">Create the invoice once. You can record multiple partial payments against the same invoice.</p>
             <form id="requestForm">
-              <label for="description">What is this payment for? <span class="required">*</span></label>
+              <label for="description">Invoice description <span class="required">*</span></label>
               <input id="description" name="description" maxlength="180" placeholder="e.g. Website development deposit" required>
               <div class="form-two">
-                <div><label for="amount">Amount (MWK) <span class="required">*</span></label><input id="amount" name="amount" type="number" min="1" max="100000000" step="1" inputmode="numeric" placeholder="150000" required></div>
+                <div><label for="amount">Invoice total (MWK) <span class="required">*</span></label><input id="amount" name="totalAmount" type="number" min="1" max="100000000" step="1" inputmode="numeric" placeholder="150000" required></div>
                 <div><label for="customerName">Customer name</label><input id="customerName" name="customerName" maxlength="100" placeholder="e.g. John Banda"></div>
               </div>
               <label for="customerEmail">Customer email <span class="optional">OPTIONAL</span></label>
               <input id="customerEmail" name="customerEmail" type="email" maxlength="254" placeholder="customer@example.com">
               <div class="secure-note"><span>♢</span><p>Customers pay on PayChangu's hosted checkout. Tambala Pay never collects card details or mobile-money PINs.</p></div>
-              <button id="createButton" class="button button-primary button-wide" type="submit">Create payment link <span>→</span></button>
+              <button id="createButton" class="button button-primary button-wide" type="submit">Create invoice <span>→</span></button>
               <p id="requestMessage" class="form-message" role="status"></p>
             </form>
           </article>
@@ -77,8 +77,15 @@
           </article>
         </section>
 
+
+        <section id="invoices" class="panel activity-panel" style="margin-bottom:20px">
+          <div class="panel-heading activity-heading"><div><div class="eyebrow">INVOICE LEDGER</div><h2>Invoices & balances</h2></div><button id="refreshInvoices" class="button button-secondary">↻ Refresh</button></div>
+          <div class="table-wrap"><table><thead><tr><th>INVOICE</th><th>CUSTOMER</th><th>TOTAL</th><th>PAID</th><th>BALANCE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody id="invoicesBody"><tr><td colspan="8" class="empty-cell">Unlock the workspace to load invoices.</td></tr></tbody></table></div>
+          <div id="invoicesFoot" class="table-foot">Invoices are created once; each partial payment is tracked separately with its own receipt.</div>
+        </section>
+
         <section id="activity" class="panel activity-panel">
-          <div class="panel-heading activity-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Payment requests</h2></div><button id="refreshButton" class="button button-secondary">↻ Refresh</button></div>
+          <div class="panel-heading activity-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Legacy payment requests</h2></div><button id="refreshButton" class="button button-secondary">↻ Refresh</button></div>
           <div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>PAYMENT</th><th>CUSTOMER</th><th>AMOUNT</th><th>STATUS</th><th>CREATED</th><th></th></tr></thead><tbody id="requestsBody"><tr><td colspan="7" class="empty-cell">Unlock the workspace to load requests.</td></tr></tbody></table></div>
           <div id="tableFoot" class="table-foot">Financial status is based on server-side verification.</div>
         </section>
