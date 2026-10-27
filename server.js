@@ -87,6 +87,20 @@ function makeReference() {
   return "TP-" + crypto.randomUUID().replace(/-/g, "").slice(0, 18).toUpperCase();
 }
 
+ // Inline checkout references are numeric because PayChangu's inline popup example
+ // and verification endpoint expect a numeric transaction reference.
+async function makeInvoicePaymentReference() {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const ref = String(crypto.randomInt(100000000, 2000000000));
+    const existing = await pool.query(
+      "SELECT 1 FROM invoice_payments WHERE tx_ref = $1 UNION ALL SELECT 1 FROM payment_requests WHERE tx_ref = $1 LIMIT 1",
+      [ref]
+    );
+    if (!existing.rowCount) return ref;
+  }
+  throw new Error("Could not allocate a unique PayChangu invoice reference.");
+}
+
 function toMoney(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
@@ -276,7 +290,7 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
     if (amount > toMoney(invoice.available_amount)) return res.status(400).json({ error: "That amount exceeds the available balance. Refresh the invoice and try again." });
 
     const id = crypto.randomUUID();
-    const txRef = makeReference();
+    const txRef = await makeInvoicePaymentReference();
     await pool.query("INSERT INTO invoice_payments (id, invoice_id, tx_ref, amount) VALUES ($1,$2,$3,$4)", [id, invoice.id, txRef, amount]);
     const customerParts = String(invoice.customer_name || "Customer").trim().split(/\s+/);
     const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking";
