@@ -14,20 +14,20 @@
 </head>
 <body>
   <header class="top"><div class="topin"><div class="mark">T</div><div><div class="brand">Tambala Pay</div><div class="subbrand">SECURE INVOICE PAYMENT</div></div></div></header>
-  <main><section class="card" id="invoiceCard"><div class="eyebrow">INVOICE FROM YOUR SERVICE PROVIDER</div><h1 class="title" id="title">Loading invoice…</h1><p class="muted" id="description"></p>
+  <main><section class="card" id="invoiceCard"><h1 class="title" id="title">Loading invoice…</h1><p class="muted" id="description"></p>
     <div class="summary">
       <div class="summaryrow"><span>Invoice total</span><strong id="total">—</strong></div>
       <div class="summaryrow"><span>Paid so far</span><strong id="paid">—</strong></div>
       <div class="rule"></div>
       <div class="summaryrow"><span>Balance remaining</span><strong class="amount" id="balance">—</strong></div>
     </div>
-    <section class="shareqr" aria-label="Invoice QR code"><img id="invoiceQr" alt="QR code for this invoice link"><div><h2>Open this invoice by QR</h2><p>Scan to view this invoice and pay in full or in parts.</p><button class="smallbtn" id="downloadInvoiceQr" type="button">Download QR code</button></div></section>
+    <section class="shareqr" aria-label="Invoice QR code"><img id="invoiceQr" alt="Invoice QR code"><div><h2>Invoice QR</h2><button class="smallbtn" id="downloadInvoiceQr" type="button">Download QR</button></div></section>
     <section class="receipt-view hidden" id="receiptView" aria-live="polite"><h3>Payment receipt</h3><div id="receiptDetails" class="receipt-grid"></div><div class="receipt-actions"><button class="smallbtn" id="downloadReceipt" type="button">Download receipt</button><button class="smallbtn" id="printReceipt" type="button">Print / Save as PDF</button><button class="smallbtn" id="closeReceipt" type="button">Close</button></div></section>
     <div id="wrapper"></div>
     <form class="form" id="payForm"><label class="label" for="amount">How much would you like to pay? (MWK)</label><input class="moneyinput" id="amount" type="number" min="1" step="1" inputmode="numeric" required placeholder="Enter amount"><div class="quick" id="quickAmounts"></div><label class="label" for="payerEmail">Email for payment</label><input class="moneyinput" id="payerEmail" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com" style="font-size:16px;margin-bottom:16px"><button class="btn" id="payButton" type="submit">Continue to secure payment →</button><p class="message" id="message" role="status"></p></form>
-    <div class="notice">Payments are processed on PayChangu's secure checkout. Never share your mobile-money PIN or card details with anyone. Your Tambala Pay receipt will be available on this page after verification.</div>
+    
     <section class="payments" id="paymentsSection"><h2>Payment history</h2><div id="payments"></div></section>
-  </section><div class="foot">Tambala Pay · Built by Tambala Technologies</div></main>
+  </section><div class="foot">Tambala Pay · Tambala Technologies</div></main>
   <script id="paychanguPopupSdk" src="https://in.paychangu.com/js/popup.js" onerror="window.paychanguSdkLoadFailed=true"></script>
   <script src="/invoice.js?v=payment-return-verification-1" defer></script>
 </body></html>
