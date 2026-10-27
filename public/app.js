@@ -38,6 +38,7 @@
     state.qrPayment = payment;
     const invoice = state.invoices.find((item) => item.id === invoiceId);
     $("#qrTitle").textContent = invoice ? "Payment for " + invoice.invoice_number : "Scan to pay";
+    $("#copyQrLink").textContent = "Copy payment link";
     $("#qrDescription").textContent = "Let the customer scan this code with another phone to open the secure PayChangu checkout.";
     $("#qrImage").src = payment.qr_data_url;
     $("#qrAmount").textContent = money(payment.amount) + (invoice ? " · " + invoice.invoice_number : "");
@@ -59,6 +60,7 @@
         tx_ref: "invoice-" + invoice.invoice_number, amount: invoice.total_amount
       };
       $("#qrTitle").textContent = "Share " + invoice.invoice_number;
+      $("#copyQrLink").textContent = "Copy invoice link";
       $("#qrDescription").textContent = "This QR code opens the customer's invoice page, where they can see the balance, view receipts and pay in parts.";
       $("#qrImage").src = data.qr_data_url;
       $("#qrImage").alt = "QR code linking to invoice " + invoice.invoice_number;
