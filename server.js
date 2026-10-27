@@ -495,6 +495,41 @@ app.post("/api/invoices/:id/payments", requireInternalAccess, async (req, res, n
   } catch (error) { next(error); }
 });
 
+// Organization API: look up one payment by its transaction reference across
+// invoice payments and legacy one-off payment requests. Never treat pending as paid.
+app.get("/api/payments/:txRef", requireInternalAccess, async (req, res, next) => {
+  try {
+    const txRef = String(req.params.txRef || "").trim().slice(0, 100);
+    if (!txRef) return res.status(400).json({ error: "Transaction reference is required." });
+
+    const invoicePayment = await pool.query(`
+      SELECT p.id, p.tx_ref, p.invoice_id, i.invoice_number, i.description,
+        i.customer_name, p.amount, p.currency, p.status, p.checkout_url,
+        p.provider_reference, p.receipt_number, p.created_at, p.updated_at, p.paid_at
+      FROM invoice_payments p
+      JOIN invoices i ON i.id = p.invoice_id
+      WHERE p.tx_ref = $1
+      LIMIT 1
+    `, [txRef]);
+
+    if (invoicePayment.rowCount) {
+      res.set("Cache-Control", "no-store");
+      return res.json({ payment: { ...invoicePayment.rows[0], kind: "invoice_payment" } });
+    }
+
+    const requestPayment = await pool.query(
+      `SELECT id, tx_ref, description, customer_name, customer_email, amount,
+        currency, status, checkout_url, provider_reference, receipt_number,
+        created_at, updated_at, paid_at
+       FROM payment_requests WHERE tx_ref = $1 LIMIT 1`,
+      [txRef]
+    );
+    if (!requestPayment.rowCount) return res.status(404).json({ error: "Payment not found." });
+    res.set("Cache-Control", "no-store");
+    return res.json({ payment: { ...requestPayment.rows[0], kind: "payment_request" } });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/summary", requireInternalAccess, async (req, res, next) => {
   try {
     const result = await pool.query(`
