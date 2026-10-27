@@ -6,6 +6,7 @@ const express = require("express");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { Pool } = require("pg");
+const QRCode = require("qrcode");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -292,7 +293,8 @@ app.post("/api/invoices/:id/payments", requireInternalAccess, async (req, res, n
         return res.status(502).json({ error: "PayChangu could not create checkout. Check the API key and account mode." });
       }
       await pool.query("UPDATE invoice_payments SET checkout_url = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, checkoutUrl]);
-      res.status(201).json({ payment: { id, tx_ref: txRef, amount, currency: "MWK", status: "pending", checkout_url: checkoutUrl } });
+      const qrDataUrl = await QRCode.toDataURL(checkoutUrl, { errorCorrectionLevel: "M", margin: 2, width: 360 });
+      res.status(201).json({ payment: { id, tx_ref: txRef, amount, currency: "MWK", status: "pending", checkout_url: checkoutUrl, qr_data_url: qrDataUrl } });
     } catch (providerError) {
       await pool.query("UPDATE invoice_payments SET status = 'failed', verification_note = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, "PayChangu connection failed."]);
       throw providerError;
