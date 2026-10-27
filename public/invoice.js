@@ -40,4 +40,13 @@
     }catch(err){setMessage(err.message,true);b.disabled=false;b.textContent="Continue to secure payment →";}
   });
   load();
+  // Payment providers may redirect before their webhook finishes; refresh the verified state briefly.
+  if (new URLSearchParams(location.search).has("payment")) {
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts += 1;
+      await load();
+      if (attempts >= 6) clearInterval(timer);
+    }, 4000);
+  }
 })();
