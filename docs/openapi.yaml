@@ -24,6 +24,12 @@ components:
       scheme: bearer
       bearerFormat: opaque token
       description: Value of INTERNAL_ACCESS_TOKEN. Server-to-server only.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
   schemas:
     Error:
       type: object
@@ -302,10 +308,3 @@ paths:
       security: []
       responses:
         '200': { description: Return handler response }
-components:
-  parameters:
-    Id:
-      name: id
-      in: path
-      required: true
-      schema: { type: string }
