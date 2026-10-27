@@ -200,6 +200,93 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "tambala-pay", mode: process.env.NODE_ENV || "development" });
 });
 
+// Public invoice page: the UUID in the URL is an unguessable share token.
+app.get("/invoice/:id", (req, res) => res.sendFile(path.join(__dirname, "public", "invoice.html")));
+
+app.get("/api/public/invoices/:id", async (req, res, next) => {
+  try {
+    const result = await pool.query(`
+      SELECT i.id, i.invoice_number, i.description, i.customer_name, i.total_amount, i.currency,
+        i.status, i.created_at, i.due_at,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0)::numeric(12,2) AS paid_amount,
+        GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due
+      FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
+      WHERE i.id = $1 GROUP BY i.id
+    `, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Invoice not found." });
+    const payments = await pool.query(
+      "SELECT id, amount, currency, status, receipt_number, created_at, paid_at FROM invoice_payments WHERE invoice_id = $1 AND status = 'paid' ORDER BY paid_at DESC",
+      [req.params.id]
+    );
+    res.set("Cache-Control", "no-store");
+    res.json({ invoice: result.rows[0], payments: payments.rows });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
+  try {
+    if (!PAYCHANGU_SECRET_KEY) return res.status(503).json({ error: "Online checkout is not configured yet. Please contact the business that issued this invoice." });
+    if (process.env.NODE_ENV === "production" && !APP_BASE_URL.startsWith("https://")) return res.status(500).json({ error: "Payment service configuration error." });
+    const amount = toMoney(req.body.amount);
+    if (amount === null || amount < 1 || amount > 100000000) return res.status(400).json({ error: "Enter a valid payment amount." });
+    const result = await pool.query(`
+      SELECT i.*,
+        GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due,
+        GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status IN ('paid','pending')), 0), 0)::numeric(12,2) AS available_amount
+      FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
+      WHERE i.id = $1 GROUP BY i.id
+    `, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Invoice not found." });
+    const invoice = result.rows[0];
+    if (invoice.status === "cancelled" || invoice.status === "paid") return res.status(409).json({ error: "This invoice is not open for payment." });
+    if (amount > toMoney(invoice.available_amount)) return res.status(400).json({ error: "That amount exceeds the available balance. Refresh the invoice and try again." });
+
+    const id = crypto.randomUUID();
+    const txRef = makeReference();
+    await pool.query("INSERT INTO invoice_payments (id, invoice_id, tx_ref, amount) VALUES ($1,$2,$3,$4)", [id, invoice.id, txRef, amount]);
+    try {
+      const customerParts = String(invoice.customer_name || "Customer").trim().split(/\\s+/);
+      const payload = {
+        amount: String(amount), currency: invoice.currency || "MWK", tx_ref: txRef,
+        first_name: customerParts[0] || "Customer", last_name: customerParts.slice(1).join(" "),
+        callback_url: APP_BASE_URL + "/api/paychangu/return",
+        return_url: APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking",
+        customization: { title: "Tambala Pay", description: invoice.invoice_number + " — " + invoice.description }
+      };
+      const providerResponse = await fetch("https://api.paychangu.com/payment", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: "Bearer " + PAYCHANGU_SECRET_KEY },
+        body: JSON.stringify(payload), signal: AbortSignal.timeout(20000)
+      });
+      const providerResult = await providerResponse.json().catch(() => ({}));
+      const checkoutUrl = providerResult.data && providerResult.data.checkout_url;
+      if (!providerResponse.ok || providerResult.status !== "success" || !checkoutUrl || !checkoutUrl.startsWith("https://")) {
+        await pool.query("UPDATE invoice_payments SET status = 'failed', verification_note = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, "Could not initialize PayChangu checkout."]);
+        return res.status(502).json({ error: "We couldn't start checkout. Please try again or contact the business." });
+      }
+      await pool.query("UPDATE invoice_payments SET checkout_url = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, checkoutUrl]);
+      res.status(201).json({ payment: { id, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout_url: checkoutUrl } });
+    } catch (providerError) {
+      await pool.query("UPDATE invoice_payments SET status = 'failed', verification_note = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, "PayChangu connection failed."]);
+      throw providerError;
+    }
+  } catch (error) { next(error); }
+});
+
+app.get("/api/public/payments/:id/receipt", async (req, res, next) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.tx_ref, i.invoice_number, i.description, i.customer_name, p.amount, p.currency,
+        p.status, p.receipt_number, p.provider_reference, p.paid_at
+      FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id WHERE p.id = $1
+    `, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Payment not found." });
+    if (result.rows[0].status !== "paid" || !result.rows[0].receipt_number) return res.status(409).json({ error: "Receipt is available after the payment is verified." });
+    res.set("Cache-Control", "no-store");
+    res.json({ receipt: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
 // Invoices are created once; each payment attempt is a separate, auditable record.
 app.get("/api/invoices", requireInternalAccess, async (req, res, next) => {
   try {
