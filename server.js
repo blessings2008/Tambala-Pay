@@ -91,7 +91,7 @@ function makeReference() {
  // and verification endpoint expect a numeric transaction reference.
 async function makeInvoicePaymentReference() {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const ref = String(crypto.randomInt(100000000, 2000000000));
+    const ref = String(crypto.randomInt(1, 1000000000));
     const existing = await pool.query(
       "SELECT 1 FROM invoice_payments WHERE tx_ref = $1 UNION ALL SELECT 1 FROM payment_requests WHERE tx_ref = $1 LIMIT 1",
       [ref]
