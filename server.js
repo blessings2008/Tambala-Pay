@@ -273,6 +273,17 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get("/api/public/invoices/:id/qr", async (req, res, next) => {
+  try {
+    const result = await pool.query("SELECT id FROM invoices WHERE id = $1", [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Invoice not found." });
+    const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(req.params.id);
+    const qrDataUrl = await QRCode.toDataURL(invoiceUrl, { errorCorrectionLevel: "M", margin: 2, width: 360 });
+    res.set("Cache-Control", "no-store");
+    res.json({ url: invoiceUrl, qr_data_url: qrDataUrl });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/public/payments/:id/receipt", async (req, res, next) => {
   try {
     const result = await pool.query(`
