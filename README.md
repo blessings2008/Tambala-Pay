@@ -21,7 +21,7 @@ This repository is initially for **Tambala Technologies and its internal organiz
 
 ## Stack
 - Node.js + Express
-- PostgreSQL (Supabase or another managed PostgreSQL instance)
+- Supabase PostgreSQL (server-side connection through `pg`)
 - PayChangu Standard Checkout
 - Plain HTML/CSS/JavaScript frontend
 
@@ -35,18 +35,19 @@ This repository is initially for **Tambala Technologies and its internal organiz
 - Set the PayChangu webhook secret according to the PayChangu dashboard/docs.
 
 ## Local setup
-1. Install Node.js 20 or later and PostgreSQL.
-2. Copy .env.example to .env and fill in the values.
-3. Run npm install.
-4. Run npm start.
-5. Open http://localhost:3000 and enter the internal access token.
+1. Create a Supabase project and open **Connect** in the project dashboard.
+2. Copy the PostgreSQL connection string into `DATABASE_URL`. For a hosted Node.js service such as Render, use the **Session pooler** connection string if the direct database endpoint is not reachable over IPv6; keep SSL enabled.
+3. In Supabase SQL Editor, run `supabase/schema.sql` to create the tables and enable row-level security as defense in depth. The server also creates missing tables on startup.
+4. Copy `.env.example` to `.env` for local development and set a long random `INTERNAL_ACCESS_TOKEN`. Keep the database password and PayChangu secrets only in server environment variables.
+5. Run `npm install`, then `npm start`.
+6. Open http://localhost:3000 and enter the internal access token.
 
-The server creates its required database tables on startup, including `invoices` and `invoice_payments`. Existing `payment_requests` records remain supported for backwards compatibility.
+The app uses the PostgreSQL wire protocol via the `pg` package; it does not expose the Supabase service/database credential to the browser or require a Supabase publishable key. Existing `payment_requests` records remain supported for backwards compatibility.
 
 ## Invoice flow
 1. Create an invoice once with the full amount due.
 2. From the invoice ledger, choose **Collect payment** and enter any amount from MWK 1 up to the available balance.
-3. Share the hosted PayChangu checkout link with the customer.
+3. Tambala Pay generates a QR code for that specific hosted PayChangu checkout. Show it to the customer to scan, download it, or copy the checkout link to send by chat.
 4. Repeat later for another partial payment. Each payment is verified independently and receives its own receipt after confirmation.
 5. The invoice moves from open to partially paid, then paid once verified payments cover its total.
 
@@ -60,3 +61,4 @@ See .env.example. Never commit real credentials.
 - MWK only in the first pass.
 - No automatic payouts, wallets, or custody of funds.
 - Payment provider onboarding and live credentials are separate from application development.
+- The QR code contains a link to a specific PayChangu checkout, not a direct bank/mobile-money transfer instruction. Generate a fresh QR for each partial-payment checkout.
