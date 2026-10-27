@@ -28,28 +28,28 @@
 
     <main class="main-content">
       <header class="topbar">
-        <div><div class="eyebrow">TAMBALA TECHNOLOGIES / FINANCE</div><h1>Payment collection</h1></div>
-        <div class="top-actions"><span class="mode-badge"><span></span> Internal V1</span><button id="signOut" class="button button-quiet hidden">Lock workspace</button></div>
+        <div><div class="eyebrow">TAMBALA TECHNOLOGIES</div><h1>Payment collection</h1></div>
+        <div class="top-actions"><button id="signOut" class="button button-quiet hidden">Lock workspace</button></div>
       </header>
 
       <section id="accessPanel" class="access-card">
         <div class="access-icon">⌑</div>
-        <div class="access-copy"><h2>Unlock your workspace</h2><p>Enter the internal access token configured on the server. It is stored only in this browser.</p></div>
+        <div class="access-copy"><h2>Unlock workspace</h2></div>
         <form id="accessForm" class="access-form"><label for="accessToken">Internal access token</label><div class="input-row"><input id="accessToken" type="password" autocomplete="current-password" placeholder="Paste access token" required><button class="button button-primary" type="submit">Unlock</button></div><p id="accessMessage" class="form-message" role="status"></p></form>
       </section>
 
       <div id="workspace" class="hidden">
         <section id="overview" class="metrics-grid">
-          <article class="metric-card metric-highlight"><div class="metric-label">TOTAL COLLECTED <span>↗</span></div><div id="collected" class="metric-value">MWK 0</div><div class="metric-foot"><span class="status-dot green"></span> Verified successful payments</div></article>
-          <article class="metric-card"><div class="metric-label">AWAITING PAYMENT</div><div id="pendingAmount" class="metric-value">MWK 0</div><div class="metric-foot">Open payment requests</div></article>
-          <article class="metric-card"><div class="metric-label">SUCCESSFUL PAYMENTS</div><div id="successfulCount" class="metric-value">0</div><div class="metric-foot">Verified by PayChangu</div></article>
-          <article class="metric-card"><div class="metric-label">ALL REQUESTS</div><div id="totalCount" class="metric-value">0</div><div class="metric-foot">Including failed and pending</div></article>
+          <article class="metric-card metric-highlight"><div class="metric-label">TOTAL COLLECTED <span>↗</span></div><div id="collected" class="metric-value">MWK 0</div></article>
+          <article class="metric-card"><div class="metric-label">AWAITING PAYMENT</div><div id="pendingAmount" class="metric-value">MWK 0</div></article>
+          <article class="metric-card"><div class="metric-label">SUCCESSFUL PAYMENTS</div><div id="successfulCount" class="metric-value">0</div></article>
+          <article class="metric-card"><div class="metric-label">ALL REQUESTS</div><div id="totalCount" class="metric-value">0</div></article>
         </section>
 
         <section class="content-grid">
           <article id="new-request" class="panel create-panel">
             <div class="panel-heading"><div><div class="eyebrow">COLLECT MONEY</div><h2>Create invoice</h2></div><span class="panel-icon">＋</span></div>
-            <p class="panel-description">Create the invoice once. You can record multiple partial payments against the same invoice.</p>
+            
             <form id="requestForm">
               <label for="description">Invoice description <span class="required">*</span></label>
               <input id="description" name="description" maxlength="180" placeholder="e.g. Website development deposit" required>
@@ -59,46 +59,36 @@
               </div>
               <label for="customerEmail">Customer email <span class="optional">OPTIONAL</span></label>
               <input id="customerEmail" name="customerEmail" type="email" maxlength="254" placeholder="customer@example.com">
-              <div class="secure-note"><span>♢</span><p>Customers pay on PayChangu's hosted checkout. Tambala Pay never collects card details or mobile-money PINs.</p></div>
               <button id="createButton" class="button button-primary button-wide" type="submit">Create invoice <span>→</span></button>
               <p id="requestMessage" class="form-message" role="status"></p>
             </form>
           </article>
 
-          <article class="panel steps-panel">
-            <div class="panel-heading"><div><div class="eyebrow">PAYMENT FLOW</div><h2>How it works</h2></div></div>
-            <div class="flow-list">
-              <div class="flow-step"><span class="flow-number">01</span><div><strong>Create an invoice</strong><p>Record the full amount due and customer details once.</p></div><span class="flow-state">YOU</span></div>
-              <div class="flow-step"><span class="flow-number">02</span><div><strong>Share a link or QR code</strong><p>Generate a partial-payment checkout, then send its link or let the customer scan its QR code.</p></div><span class="flow-state">CUSTOMER</span></div>
-              <div class="flow-step"><span class="flow-number">03</span><div><strong>Verify payment</strong><p>The server verifies reference, amount, currency and status.</p></div><span class="flow-state">SERVER</span></div>
-              <div class="flow-step"><span class="flow-number">04</span><div><strong>Issue receipt</strong><p>A receipt becomes available only after verified success.</p></div><span class="flow-state">TAMBALA</span></div>
-            </div>
-            <div class="notice"><strong>Test before going live</strong><p>Use PayChangu test credentials until your merchant setup and webhook configuration are ready.</p></div>
-          </article>
+
         </section>
 
 
         <section id="invoices" class="panel activity-panel" style="margin-bottom:20px">
           <div class="panel-heading activity-heading"><div><div class="eyebrow">INVOICE LEDGER</div><h2>Invoices & balances</h2></div><button id="refreshInvoices" class="button button-secondary">↻ Refresh</button></div>
           <div class="table-wrap"><table><thead><tr><th>INVOICE</th><th>CUSTOMER</th><th>TOTAL</th><th>PAID</th><th>BALANCE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody id="invoicesBody"><tr><td colspan="8" class="empty-cell">Unlock the workspace to load invoices.</td></tr></tbody></table></div>
-          <div id="invoicesFoot" class="table-foot">Invoices are created once; each partial payment is tracked separately with its own receipt.</div>
+          <div id="invoicesFoot" class="table-foot"></div>
         </section>
 
         <section id="activity" class="panel activity-panel">
-          <div class="panel-heading activity-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Legacy payment requests</h2></div><button id="refreshButton" class="button button-secondary">↻ Refresh</button></div>
+          <div class="panel-heading activity-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Payment history</h2></div><button id="refreshButton" class="button button-secondary">↻ Refresh</button></div>
           <div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>PAYMENT</th><th>CUSTOMER</th><th>AMOUNT</th><th>STATUS</th><th>CREATED</th><th></th></tr></thead><tbody id="requestsBody"><tr><td colspan="7" class="empty-cell">Unlock the workspace to load requests.</td></tr></tbody></table></div>
-          <div id="tableFoot" class="table-foot">Financial status is based on server-side verification.</div>
+          <div id="tableFoot" class="table-foot"></div>
         </section>
       </div>
-      <footer class="footer"><span>Tambala Pay <span class="footer-separator">•</span> Built for Tambala Technologies</span><span>Payments verified server-side</span></footer>
+      <footer class="footer"><span>Tambala Pay <span class="footer-separator">•</span> Tambala Technologies</span></footer>
     </main>
   </div>
   <div id="qrDialog" class="qr-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
     <section class="qr-card">
       <button id="closeQr" class="qr-close" type="button" aria-label="Close QR code">×</button>
-      <div class="eyebrow">TAMBALA PAY / PAYMENT QR</div>
+      <div class="eyebrow">TAMBALA PAY</div>
       <h2 id="qrTitle">Scan to pay</h2>
-      <p id="qrDescription" class="qr-description">Scan this code with the customer's phone to open the secure checkout.</p>
+      <p id="qrDescription" class="qr-description"></p>
       <div class="qr-frame"><img id="qrImage" alt="QR code linking to the secure PayChangu checkout"></div>
       <div id="qrAmount" class="qr-amount"></div>
       <div class="qr-actions">
@@ -106,7 +96,7 @@
         <button id="downloadQr" class="button button-secondary" type="button">Download QR</button>
         <button id="copyQrLink" class="button button-secondary" type="button">Copy payment link</button>
       </div>
-      <p class="qr-footnote">The QR code opens PayChangu's hosted checkout. It is not proof of payment; Tambala Pay verifies every payment before issuing a receipt.</p>
+      
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
