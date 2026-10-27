@@ -96,7 +96,7 @@
     try{
       const r=await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email:$("#payerEmail").value.trim()})});
       const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not start payment.");
-      if(typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu checkout could not load. Check your connection and try again.");
+      if(window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu popup did not load in this browser. Check your internet connection, then refresh the invoice and try again.");
       if(!d.payment||!d.payment.checkout) throw new Error("Secure checkout could not be prepared. Please try again.");
       window.PaychanguCheckout(d.payment.checkout);
       b.textContent="Checkout opened — complete payment in the popup";
