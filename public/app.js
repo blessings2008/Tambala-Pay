@@ -38,8 +38,8 @@
     state.qrPayment = payment;
     const invoice = state.invoices.find((item) => item.id === invoiceId);
     $("#qrTitle").textContent = invoice ? "Payment for " + invoice.invoice_number : "Scan to pay";
-    $("#copyQrLink").textContent = "Copy payment link";
-    $("#qrDescription").textContent = "Let the customer scan this code with another phone to open the secure PayChangu checkout.";
+    $("#copyQrLink").textContent = "Copy link";
+    $("#qrDescription").textContent = "";
     $("#qrImage").src = payment.qr_data_url;
     $("#qrAmount").textContent = money(payment.amount) + (invoice ? " · " + invoice.invoice_number : "");
     $("#qrOpenLink").href = payment.checkout_url;
@@ -59,9 +59,9 @@
         qr_data_url: data.qr_data_url, checkout_url: url,
         tx_ref: "invoice-" + invoice.invoice_number, amount: invoice.total_amount
       };
-      $("#qrTitle").textContent = "Share " + invoice.invoice_number;
-      $("#copyQrLink").textContent = "Copy invoice link";
-      $("#qrDescription").textContent = "This QR code opens the customer's invoice page, where they can see the balance, view receipts and pay in parts.";
+      $("#qrTitle").textContent = invoice.invoice_number;
+      $("#copyQrLink").textContent = "Copy link";
+      $("#qrDescription").textContent = "";
       $("#qrImage").src = data.qr_data_url;
       $("#qrImage").alt = "QR code linking to invoice " + invoice.invoice_number;
       $("#qrAmount").textContent = money(invoice.total_amount) + " · " + invoice.invoice_number;
@@ -113,7 +113,7 @@
     const body = $("#invoicesBody");
     if (!state.invoices.length) {
       body.innerHTML = '<tr><td colspan="8" class="empty-cell">No invoices yet. Create one above.</td></tr>';
-      $("#invoicesFoot").textContent = "Create each invoice once, then record one or more partial payments against it.";
+      $("#invoicesFoot").textContent = "";
       return;
     }
     body.innerHTML = state.invoices.map((item) => {
@@ -127,7 +127,7 @@
         '<td class="amount-cell">' + money(item.balance_due) + '</td><td>' + statusPill(item.status === "open" ? "pending" : item.status === "partially_paid" ? "pending" : item.status) + '</td>' +
         '<td class="date-cell">' + escapeHtml(date(item.created_at)) + '</td><td class="actions-cell">' + actions + '</td></tr>';
     }).join("");
-    $("#invoicesFoot").textContent = state.invoices.length + " invoices · Collect any amount up to the outstanding balance. Each successful payment gets its own receipt.";
+    $("#invoicesFoot").textContent = state.invoices.length + (state.invoices.length === 1 ? " invoice" : " invoices");
   }
 
   function statusPill(status) {
@@ -139,7 +139,7 @@
     const body = $("#requestsBody");
     if (!state.requests.length) {
       body.innerHTML = '<tr><td colspan="7" class="empty-cell">No payment requests yet. Create your first request above.</td></tr>';
-      $("#tableFoot").textContent = "Your internal payment history will appear here.";
+      $("#tableFoot").textContent = "";
       return;
     }
     body.innerHTML = state.requests.map((item) => {
@@ -158,7 +158,7 @@
         '<td class="date-cell">' + escapeHtml(date(item.created_at)) + '</td>' +
         '<td class="actions-cell">' + action + '</td></tr>';
     }).join("");
-    $("#tableFoot").textContent = state.requests.length + " recent requests · A receipt is available only after server-side payment verification.";
+    $("#tableFoot").textContent = state.requests.length + (state.requests.length === 1 ? " payment" : " payments");
   }
 
   function printReceipt(receipt) {
@@ -238,9 +238,9 @@
     if (!state.qrPayment) return;
     try {
       await navigator.clipboard.writeText(state.qrPayment.checkout_url);
-      showToast("Secure payment link copied.");
+      showToast("Link copied.");
     } catch {
-      window.prompt("Copy this secure payment link:", state.qrPayment.checkout_url);
+      window.prompt("Copy link:", state.qrPayment.checkout_url);
     }
   });
 
@@ -256,7 +256,7 @@
     const invoiceUrl = (id) => window.location.origin + "/invoice/" + encodeURIComponent(id);
     if (copyInvoiceButton) {
       const url = invoiceUrl(copyInvoiceButton.dataset.copyInvoice);
-      try { await navigator.clipboard.writeText(url); showToast("Invoice link copied. Send it to your customer."); }
+      try { await navigator.clipboard.writeText(url); showToast("Invoice link copied."); }
       catch { window.prompt("Copy this invoice link and send it to your customer:", url); }
     }
     if (shareInvoiceButton) {
@@ -306,7 +306,7 @@
       const result = await api("/api/invoices", { method: "POST", body: JSON.stringify(payload) });
       $("#requestForm").reset();
       const shareUrl = window.location.origin + "/invoice/" + encodeURIComponent(result.invoice.id);
-      message($("#requestMessage"), "Invoice " + result.invoice.invoice_number + " created. Share this customer link: " + shareUrl, "success");
+      message($("#requestMessage"), "Invoice " + result.invoice.invoice_number + " created.", "success");
       try { await navigator.clipboard.writeText(shareUrl); showToast("Invoice created — customer link copied."); }
       catch { window.prompt("Invoice created. Copy and send this link to your customer:", shareUrl); }
       await loadWorkspace();
