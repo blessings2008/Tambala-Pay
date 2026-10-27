@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101b2d">
+  <title>Invoice payment — Tambala Pay</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f3f6f8;color:#182437;font:16px/1.5 Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .top{background:#101b2d;color:#fff;padding:22px 18px}.topin{max-width:760px;margin:auto;display:flex;align-items:center;gap:12px}.mark{width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:#168363;font-size:23px;font-weight:800}.brand{font-weight:800}.subbrand{font-size:11px;letter-spacing:.13em;color:#b6c7d3}
+    main{max-width:760px;margin:34px auto;padding:0 16px 36px}.card{background:white;border:1px solid #e2e8ed;border-radius:22px;padding:clamp(20px,5vw,36px);box-shadow:0 12px 38px #17283b0c}.eyebrow{font-size:11px;letter-spacing:.14em;color:#648075;font-weight:800}.title{font-size:clamp(25px,5vw,34px);line-height:1.2;margin:8px 0 4px;overflow-wrap:anywhere}.muted{color:#68778a}.summary{margin-top:25px;background:#f4f8f6;border:1px solid #e1eee8;border-radius:16px;padding:18px}.summaryrow{display:flex;justify-content:space-between;gap:14px;padding:8px 0}.summaryrow span:first-child{color:#68778a}.amount{font-size:26px;font-weight:800;color:#176d55}.rule{height:1px;background:#e1e8e4;margin:10px 0}.form{margin-top:26px}.label{display:block;font-size:14px;font-weight:700;margin-bottom:8px}.moneyinput{width:100%;padding:15px 14px;border:1px solid #ccd6df;border-radius:12px;font:inherit;font-size:19px;outline-color:#168363}.quick{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.quick button{border:1px solid #d5e1da;background:#f5faf7;border-radius:9px;padding:8px 12px;color:#176d55;font-weight:700}.btn{width:100%;border:0;border-radius:12px;padding:15px 18px;background:#176d55;color:#fff;font:inherit;font-weight:800;cursor:pointer}.btn:disabled{opacity:.6;cursor:wait}.message{min-height:24px;margin:12px 0 0;font-size:14px}.error{color:#b42318}.notice{margin-top:18px;font-size:12px;color:#6d7a89}.payments{margin-top:25px}.payments h2{font-size:17px}.payment{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f2;padding:12px 0;font-size:14px}.badge{color:#176d55;font-weight:700}.foot{text-align:center;color:#82909c;font-size:12px;padding:22px}.hidden{display:none!important}
+    @media(max-width:480px){main{margin:18px auto}.summaryrow{font-size:14px}.amount{font-size:23px}}
+  </style>
+</head>
+<body>
+  <header class="top"><div class="topin"><div class="mark">T</div><div><div class="brand">Tambala Pay</div><div class="subbrand">SECURE INVOICE PAYMENT</div></div></div></header>
+  <main><section class="card" id="invoiceCard"><div class="eyebrow">INVOICE FROM YOUR SERVICE PROVIDER</div><h1 class="title" id="title">Loading invoice…</h1><p class="muted" id="description"></p>
+    <div class="summary">
+      <div class="summaryrow"><span>Invoice total</span><strong id="total">—</strong></div>
+      <div class="summaryrow"><span>Paid so far</span><strong id="paid">—</strong></div>
+      <div class="rule"></div>
+      <div class="summaryrow"><span>Balance remaining</span><strong class="amount" id="balance">—</strong></div>
+    </div>
+    <form class="form" id="payForm"><label class="label" for="amount">How much would you like to pay? (MWK)</label><input class="moneyinput" id="amount" type="number" min="1" step="1" inputmode="numeric" required placeholder="Enter amount"><div class="quick" id="quickAmounts"></div><button class="btn" id="payButton" type="submit">Continue to secure payment →</button><p class="message" id="message" role="status"></p></form>
+    <div class="notice">Payments are processed on PayChangu's secure checkout. Never share your mobile-money PIN or card details with anyone. A receipt is available after the payment is verified.</div>
+    <section class="payments" id="paymentsSection"><h2>Payment history</h2><div id="payments"></div></section>
+  </section><div class="foot">Tambala Pay · Built by Tambala Technologies</div></main>
+  <script src="/invoice.js" defer></script>
+</body></html>
