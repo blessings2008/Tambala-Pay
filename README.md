@@ -76,6 +76,17 @@ curl -X POST "https://tambala-pay.onrender.com/api/invoices/INVOICE_UUID/payment
 
 Replace `INVOICE_UUID` with the invoice's returned `id`. The endpoint returns a payment record and checkout information; it does not mean payment has succeeded. Trust only a status verified server-side with PayChangu.
 
+### Payment status lookup
+
+The organization can retrieve one payment by its exact transaction reference:
+
+```bash
+curl "https://tambala-pay.onrender.com/api/payments/TRANSACTION_REFERENCE" \
+  -H "Authorization: Bearer $TAMBALA_PAY_TOKEN"
+```
+
+The response includes the current payment status and whether it belongs to an invoice or a legacy one-off request. A `pending` status must never be treated as successful; only a server-verified `paid` record confirms collection.
+
 ### Integration notes
 
 - Public customer invoice endpoints are listed separately in the OpenAPI file and do not use the internal bearer token.
