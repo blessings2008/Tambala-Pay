@@ -40,8 +40,8 @@
       if(qrResponse.ok && qrData.qr_data_url) { $("#invoiceQr").src=qrData.qr_data_url; $("#downloadInvoiceQr").dataset.qr=qrData.qr_data_url; }
       if(invoice.status==="paid"||invoice.status==="cancelled"||Number(invoice.balance_due)<=0){$("#payForm").classList.add("hidden");setMessage(invoice.status==="paid"?"This invoice has been paid in full.":"This invoice is not currently open for payment.");}
       const p=new URLSearchParams(location.search).get("payment");
-      if(p==="checking") setMessage("Returned from checkout. Refreshing the verified payment status…");
-      if(p==="success") setMessage("Payment verification completed. Check the updated balance below.");
+      if(p==="checking") setMessage("Checking payment status…");
+      if(p==="success") setMessage("Payment verified.");
     } catch(e){$("#title").textContent="Invoice unavailable";setMessage(e.message,true);$("#payForm").classList.add("hidden");}
   }
 
@@ -126,7 +126,7 @@
         else if (status && ["failed", "cancelled", "canceled"].includes(status)) setMessage("This payment was not completed. You can try again.");
         else setMessage("Checking payment status with PayChangu…");
       } catch (error) {
-        setMessage("Payment verification is still pending. We’ll keep checking.", false);
+        setMessage("Payment status is still pending.", false);
       }
       await load();
     })();
