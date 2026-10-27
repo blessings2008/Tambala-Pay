@@ -94,9 +94,15 @@
     if(!Number.isFinite(amount)||amount<1||amount>Number(invoice.balance_due)){setMessage("Enter an amount between MWK 1 and the remaining balance.",true);return;}
     const b=$("#payButton");b.disabled=true;b.textContent="Preparing secure checkout…";setMessage("");
     try{
-      const r=await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount})});
+      const r=await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email:$("#payerEmail").value.trim()})});
       const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not start payment.");
-      location.href=d.payment.checkout_url;
+      if(typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu checkout could not load. Check your connection and try again.");
+      if(!d.payment||!d.payment.checkout) throw new Error("Secure checkout could not be prepared. Please try again.");
+      window.PaychanguCheckout(d.payment.checkout);
+      b.textContent="Checkout opened — complete payment in the popup";
+      setMessage("Complete the payment in the PayChangu popup. Your invoice will update after verification.");
+      // If the customer closes the popup, allow them to retry without reloading the invoice.
+      window.setTimeout(()=>{b.disabled=false;b.textContent="Continue to secure payment →";},15000);
     }catch(err){setMessage(err.message,true);b.disabled=false;b.textContent="Continue to secure payment →";}
   });
   load();
