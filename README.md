@@ -34,6 +34,56 @@ This repository is initially for **Tambala Technologies and its internal organiz
 - Configure HTTPS and a strong INTERNAL_ACCESS_TOKEN before deployment.
 - Set the PayChangu webhook secret according to the PayChangu dashboard/docs.
 
+## Organizational API integration
+
+The machine-readable OpenAPI contract for the existing HTTP routes is in [docs/openapi.yaml](docs/openapi.yaml). It can be imported into API clients and organizational tooling.
+
+Base URL: `https://tambala-pay.onrender.com`
+
+### Internal server-to-server authentication
+
+Protected internal routes require the `INTERNAL_ACCESS_TOKEN` environment variable as a bearer token. Store it only in the organizational backend's secret store. Never ship it to browser JavaScript, end users, or AI-agent prompts.
+
+```http
+Authorization: Bearer <INTERNAL_ACCESS_TOKEN>
+Content-Type: application/json
+```
+
+Example: list invoices
+
+```bash
+curl "https://tambala-pay.onrender.com/api/invoices" \
+  -H "Authorization: Bearer $TAMBALA_PAY_TOKEN"
+```
+
+Example: create an invoice
+
+```bash
+curl -X POST "https://tambala-pay.onrender.com/api/invoices" \
+  -H "Authorization: Bearer $TAMBALA_PAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"description":"Website development","customerName":"Example Customer","customerEmail":"customer@example.com","totalAmount":150000}'
+```
+
+Example: create a partial-payment checkout for an existing invoice
+
+```bash
+curl -X POST "https://tambala-pay.onrender.com/api/invoices/INVOICE_UUID/payments" \
+  -H "Authorization: Bearer $TAMBALA_PAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"amount":50000}'
+```
+
+Replace `INVOICE_UUID` with the invoice's returned `id`. The endpoint returns a payment record and checkout information; it does not mean payment has succeeded. Trust only a status verified server-side with PayChangu.
+
+### Integration notes
+
+- Public customer invoice endpoints are listed separately in the OpenAPI file and do not use the internal bearer token.
+- `GET /api/health` is a basic liveness check, not a full database/provider readiness check.
+- Internal list endpoints currently return bounded results (invoice list up to 250; payment request list up to 250). No search/date filters or dedicated payment-by-reference lookup are currently documented as implemented.
+- The API uses a shared internal token today, not per-agent API keys or organizational SSO. The org should enforce its own user/agent permissions before calling this service.
+- The OpenAPI document describes existing routes; it does not claim that every endpoint has been tested against the live Render deployment.
+
 ## Local setup
 1. Create a Supabase project and open **Connect** in the project dashboard.
 2. Copy the PostgreSQL connection string into `DATABASE_URL`. For a hosted Node.js service such as Render, use the **Session pooler** connection string if the direct database endpoint is not reachable over IPv6; keep SSL enabled.
