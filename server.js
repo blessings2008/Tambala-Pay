@@ -222,7 +222,7 @@ app.post("/api/invoices", requireInternalAccess, async (req, res, next) => {
     const totalAmount = toMoney(req.body.totalAmount);
     if (!description) return res.status(400).json({ error: "Invoice description is required." });
     if (totalAmount === null || totalAmount < 1 || totalAmount > 100000000) return res.status(400).json({ error: "Enter an invoice total between MWK 1 and MWK 100,000,000." });
-    if (customerEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customerEmail)) return res.status(400).json({ error: "Enter a valid customer email address." });
+    if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) return res.status(400).json({ error: "Enter a valid customer email address." });
     const id = crypto.randomUUID();
     const invoiceNumber = "INV-" + new Date().getFullYear() + "-" + crypto.randomBytes(4).toString("hex").toUpperCase();
     const result = await pool.query(
@@ -271,8 +271,8 @@ app.post("/api/invoices/:id/payments", requireInternalAccess, async (req, res, n
     try {
       const payload = {
         amount: String(amount), currency: "MWK", tx_ref: txRef,
-        first_name: String(invoice.customer_name || "Customer").trim().split(/\\s+/)[0] || "Customer",
-        last_name: String(invoice.customer_name || "").trim().split(/\\s+/).slice(1).join(" "),
+        first_name: String(invoice.customer_name || "Customer").trim().split(/\s+/)[0] || "Customer",
+        last_name: String(invoice.customer_name || "").trim().split(/\s+/).slice(1).join(" "),
         email: invoice.customer_email || undefined,
         callback_url: APP_BASE_URL + "/api/paychangu/return",
         return_url: APP_BASE_URL + "/?payment=cancelled",
