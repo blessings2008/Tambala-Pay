@@ -1,7 +1,7 @@
 (() => {
   const TOKEN_KEY = "tambalaPayInternalToken";
   const $ = (selector) => document.querySelector(selector);
-  const state = { token: localStorage.getItem(TOKEN_KEY) || "", requests: [], invoices: [] };
+  const state = { token: localStorage.getItem(TOKEN_KEY) || "", requests: [], invoices: [], qrPayment: null };
 
   const money = (value) => new Intl.NumberFormat("en-MW", {
     style: "currency", currency: "MWK", maximumFractionDigits: 0
@@ -32,6 +32,18 @@
     toast.textContent = text;
     toast.classList.add("show");
     window.setTimeout(() => toast.classList.remove("show"), 3200);
+  }
+
+  function showPaymentQr(payment, invoiceId) {
+    state.qrPayment = payment;
+    const invoice = state.invoices.find((item) => item.id === invoiceId);
+    $("#qrTitle").textContent = invoice ? "Payment for " + invoice.invoice_number : "Scan to pay";
+    $("#qrDescription").textContent = "Let the customer scan this code with another phone to open the secure PayChangu checkout.";
+    $("#qrImage").src = payment.qr_data_url;
+    $("#qrAmount").textContent = money(payment.amount) + (invoice ? " · " + invoice.invoice_number : "");
+    $("#qrOpenLink").href = payment.checkout_url;
+    $("#qrDialog").classList.remove("hidden");
+    $("#closeQr").focus();
   }
 
   function setUnlocked(unlocked) {
@@ -180,6 +192,32 @@
     unlock($("#accessToken").value.trim());
   });
 
+  $("#closeQr").addEventListener("click", () => $("#qrDialog").classList.add("hidden"));
+  $("#qrDialog").addEventListener("click", (event) => {
+    if (event.target === $("#qrDialog")) $("#qrDialog").classList.add("hidden");
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") $("#qrDialog").classList.add("hidden");
+  });
+  $("#downloadQr").addEventListener("click", () => {
+    if (!state.qrPayment || !state.qrPayment.qr_data_url) return;
+    const anchor = document.createElement("a");
+    anchor.href = state.qrPayment.qr_data_url;
+    anchor.download = "tambala-pay-" + state.qrPayment.tx_ref + ".png";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  });
+  $("#copyQrLink").addEventListener("click", async () => {
+    if (!state.qrPayment) return;
+    try {
+      await navigator.clipboard.writeText(state.qrPayment.checkout_url);
+      showToast("Secure payment link copied.");
+    } catch {
+      window.prompt("Copy this secure payment link:", state.qrPayment.checkout_url);
+    }
+  });
+
   $("#signOut").addEventListener("click", lockWorkspace);
   $("#refreshButton").addEventListener("click", loadWorkspace);
   $("#requestsBody").addEventListener("click", handleTableAction);
@@ -201,13 +239,7 @@
           method: "POST", body: JSON.stringify({ amount })
         });
         await loadWorkspace();
-        const link = result.payment.checkout_url;
-        if (window.confirm("Payment link created for " + money(amount) + ". Open checkout now? Choose Cancel to copy the link.")) {
-          window.open(link, "_blank", "noopener,noreferrer");
-        } else {
-          try { await navigator.clipboard.writeText(link); showToast("Partial-payment checkout link copied."); }
-          catch { window.prompt("Copy this checkout link:", link); }
-        }
+        showPaymentQr(result.payment, payButton.dataset.payInvoice);
       } catch (error) { showToast(error.message); }
     }
     if (detailsButton) {
