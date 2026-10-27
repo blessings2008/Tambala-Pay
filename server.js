@@ -256,14 +256,16 @@ app.post("/api/invoices/:id/payments", requireInternalAccess, async (req, res, n
     const amount = toMoney(req.body.amount);
     if (amount === null || amount < 1 || amount > 100000000) return res.status(400).json({ error: "Enter a valid payment amount." });
     const invoiceResult = await pool.query(`
-      SELECT i.*, GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due
+      SELECT i.*,
+        GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due,
+        GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status IN ('paid','pending')), 0), 0)::numeric(12,2) AS available_amount
       FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
       WHERE i.id = $1 GROUP BY i.id
     `, [req.params.id]);
     if (!invoiceResult.rowCount) return res.status(404).json({ error: "Invoice not found." });
     const invoice = invoiceResult.rows[0];
     if (invoice.status === "cancelled" || invoice.status === "paid") return res.status(409).json({ error: "This invoice is not open for payment." });
-    if (amount > toMoney(invoice.balance_due)) return res.status(400).json({ error: "Payment exceeds the remaining invoice balance of MWK " + invoice.balance_due + "." });
+    if (amount > toMoney(invoice.available_amount)) return res.status(400).json({ error: "Payment exceeds the amount currently available to collect (MWK " + invoice.available_amount + "). Any existing pending checkout temporarily reserves its amount." });
 
     const id = crypto.randomUUID();
     const txRef = makeReference();
