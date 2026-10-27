@@ -145,6 +145,22 @@ paths:
         '409': { description: Invoice is cancelled or already paid }
         '502': { description: Checkout provider failed }
         '503': { description: PayChangu is not configured }
+  /api/payments/{txRef}:
+    parameters:
+      - name: txRef
+        in: path
+        required: true
+        description: Exact payment transaction reference (tx_ref).
+        schema: { type: string }
+    get:
+      tags: [Internal payments]
+      summary: Look up a payment by transaction reference
+      description: Searches invoice payment attempts first, then legacy one-off payment requests. A pending status is not proof of payment.
+      security: [{ InternalBearer: [] }]
+      responses:
+        '200': { description: Payment record, including kind and current status }
+        '401': { description: Missing or invalid internal token }
+        '404': { description: Payment not found }
   /api/summary:
     get:
       tags: [Internal payments]
