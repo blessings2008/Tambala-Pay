@@ -232,7 +232,7 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
     const amount = toMoney(req.body.amount);
     const email = String(req.body.email || "").trim().slice(0, 254);
     if (amount === null || amount < 1 || amount > 100000000) return res.status(400).json({ error: "Enter a valid payment amount." });
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return res.status(400).json({ error: "Enter a valid email address for the payment receipt." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Enter a valid email address for the payment receipt." });
 
     const result = await pool.query(`
       SELECT i.*,
@@ -249,7 +249,7 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
     const id = crypto.randomUUID();
     const txRef = makeReference();
     await pool.query("INSERT INTO invoice_payments (id, invoice_id, tx_ref, amount) VALUES ($1,$2,$3,$4)", [id, invoice.id, txRef, amount]);
-    const customerParts = String(invoice.customer_name || "Customer").trim().split(/\\s+/);
+    const customerParts = String(invoice.customer_name || "Customer").trim().split(/\s+/);
     const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking";
     res.status(201).json({
       payment: {
