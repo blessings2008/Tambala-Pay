@@ -228,6 +228,24 @@ app.get("/api/public/invoices/:id", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Verify a payment after PayChangu redirects the customer back to their invoice.
+// The reference must belong to this invoice, and success is confirmed server-side with PayChangu.
+app.post("/api/public/invoices/:id/verify-payment", async (req, res, next) => {
+  try {
+    const txRef = String(req.body.tx_ref || "").trim().slice(0, 80);
+    if (!txRef) return res.status(400).json({ error: "Missing payment reference." });
+    const local = await pool.query(
+      "SELECT id FROM invoice_payments WHERE invoice_id = $1 AND tx_ref = $2",
+      [req.params.id, txRef]
+    );
+    if (!local.rowCount) return res.status(404).json({ error: "Payment reference was not found for this invoice." });
+    const verified = await verifyAndUpdatePayment(txRef);
+    if (!verified.found) return res.status(404).json({ error: "Payment record was not found." });
+    res.set("Cache-Control", "no-store");
+    return res.json({ status: verified.status || "pending" });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
   try {
     if (!PAYCHANGU_SECRET_KEY) return res.status(503).json({ error: "Online checkout is not configured yet. Please contact the business that issued this invoice." });
