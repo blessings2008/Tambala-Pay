@@ -92,9 +92,10 @@
       return;
     }
     body.innerHTML = state.invoices.map((item) => {
-      const actions = item.status !== "paid" && item.status !== "cancelled"
-        ? '<button class="table-action" data-pay-invoice="' + escapeHtml(item.id) + '" data-balance="' + escapeHtml(item.balance_due) + '">Collect payment</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>'
-        : '<button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
+      const shareUrl = window.location.origin + "/invoice/" + encodeURIComponent(item.id);
+      const actions = (item.status !== "paid" && item.status !== "cancelled"
+        ? '<button class="table-action" data-pay-invoice="' + escapeHtml(item.id) + '" data-balance="' + escapeHtml(item.balance_due) + '">Collect payment</button> '
+        : '') + '<button class="table-action" data-copy-invoice="' + escapeHtml(item.id) + '">Copy invoice link</button> <button class="table-action" data-share-invoice="' + escapeHtml(item.id) + '">Share</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
       return '<tr><td><div class="reference">' + escapeHtml(item.invoice_number) + '</div><div class="subline">' + escapeHtml(item.description) + '</div></td>' +
         '<td>' + escapeHtml(item.customer_name || "Not specified") + '<div class="subline">' + escapeHtml(item.customer_email || "") + '</div></td>' +
         '<td class="amount-cell">' + money(item.total_amount) + '</td><td>' + money(item.paid_amount) + '</td>' +
@@ -225,6 +226,24 @@
   $("#invoicesBody").addEventListener("click", async (event) => {
     const payButton = event.target.closest("[data-pay-invoice]");
     const detailsButton = event.target.closest("[data-invoice-details]");
+    const copyInvoiceButton = event.target.closest("[data-copy-invoice]");
+    const shareInvoiceButton = event.target.closest("[data-share-invoice]");
+    const invoiceUrl = (id) => window.location.origin + "/invoice/" + encodeURIComponent(id);
+    if (copyInvoiceButton) {
+      const url = invoiceUrl(copyInvoiceButton.dataset.copyInvoice);
+      try { await navigator.clipboard.writeText(url); showToast("Invoice link copied. Send it to your customer."); }
+      catch { window.prompt("Copy this invoice link and send it to your customer:", url); }
+    }
+    if (shareInvoiceButton) {
+      const item = state.invoices.find((row) => row.id === shareInvoiceButton.dataset.shareInvoice);
+      const url = invoiceUrl(shareInvoiceButton.dataset.shareInvoice);
+      const text = "Hello" + (item && item.customer_name ? " " + item.customer_name : "") + ", here is your invoice " + (item ? item.invoice_number : "") + " for " + (item ? money(item.total_amount) : "") + ". You can view it and pay in full or in parts here: " + url;
+      if (navigator.share) {
+        try { await navigator.share({ title: "Tambala Pay invoice", text, url }); } catch (error) { if (error.name !== "AbortError") showToast("Sharing was cancelled."); }
+      } else {
+        window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener,noreferrer");
+      }
+    }
     if (payButton) {
       const balance = Number(payButton.dataset.balance);
       const raw = window.prompt("Enter the amount to collect now (MWK). Outstanding balance: " + money(balance), String(balance));
@@ -267,8 +286,10 @@
     try {
       const result = await api("/api/invoices", { method: "POST", body: JSON.stringify(payload) });
       $("#requestForm").reset();
-      message($("#requestMessage"), "Invoice " + result.invoice.invoice_number + " created. You can now collect payments in parts from the invoice ledger.", "success");
-      showToast("Invoice created.");
+      const shareUrl = window.location.origin + "/invoice/" + encodeURIComponent(result.invoice.id);
+      message($("#requestMessage"), "Invoice " + result.invoice.invoice_number + " created. Share this customer link: " + shareUrl, "success");
+      try { await navigator.clipboard.writeText(shareUrl); showToast("Invoice created — customer link copied."); }
+      catch { window.prompt("Invoice created. Copy and send this link to your customer:", shareUrl); }
       await loadWorkspace();
     } catch (error) {
       message($("#requestMessage"), error.message, "error");
