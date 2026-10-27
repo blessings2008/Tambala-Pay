@@ -2,7 +2,7 @@ services:
   - type: web
     name: tambala-pay
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
