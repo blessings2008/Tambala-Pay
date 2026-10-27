@@ -13,6 +13,7 @@ const PORT = Number(process.env.PORT || 3000);
 const APP_BASE_URL = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
 const INTERNAL_ACCESS_TOKEN = process.env.INTERNAL_ACCESS_TOKEN || "";
 const PAYCHANGU_SECRET_KEY = process.env.PAYCHANGU_SECRET_KEY || "";
+const PAYCHANGU_PUBLIC_KEY = process.env.PAYCHANGU_PUBLIC_KEY || "";
 const PAYCHANGU_WEBHOOK_SECRET = process.env.PAYCHANGU_WEBHOOK_SECRET || "";
 
 if (!INTERNAL_ACCESS_TOKEN || INTERNAL_ACCESS_TOKEN.length < 32) {
@@ -226,9 +227,13 @@ app.get("/api/public/invoices/:id", async (req, res, next) => {
 app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
   try {
     if (!PAYCHANGU_SECRET_KEY) return res.status(503).json({ error: "Online checkout is not configured yet. Please contact the business that issued this invoice." });
+    if (!PAYCHANGU_PUBLIC_KEY) return res.status(503).json({ error: "The secure checkout popup is not configured yet. Please contact the business that issued this invoice." });
     if (process.env.NODE_ENV === "production" && !APP_BASE_URL.startsWith("https://")) return res.status(500).json({ error: "Payment service configuration error." });
     const amount = toMoney(req.body.amount);
+    const email = String(req.body.email || "").trim().slice(0, 254);
     if (amount === null || amount < 1 || amount > 100000000) return res.status(400).json({ error: "Enter a valid payment amount." });
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return res.status(400).json({ error: "Enter a valid email address for the payment receipt." });
+
     const result = await pool.query(`
       SELECT i.*,
         GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due,
@@ -244,32 +249,28 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
     const id = crypto.randomUUID();
     const txRef = makeReference();
     await pool.query("INSERT INTO invoice_payments (id, invoice_id, tx_ref, amount) VALUES ($1,$2,$3,$4)", [id, invoice.id, txRef, amount]);
-    try {
-      const customerParts = String(invoice.customer_name || "Customer").trim().split(/\\s+/);
-      const payload = {
-        amount: String(amount), currency: invoice.currency || "MWK", tx_ref: txRef,
-        first_name: customerParts[0] || "Customer", last_name: customerParts.slice(1).join(" "),
-        callback_url: APP_BASE_URL + "/api/paychangu/webhook",
-        return_url: APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking",
-        customization: { title: "Tambala Pay", description: invoice.invoice_number + " — " + invoice.description }
-      };
-      const providerResponse = await fetch("https://api.paychangu.com/payment", {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: "Bearer " + PAYCHANGU_SECRET_KEY },
-        body: JSON.stringify(payload), signal: AbortSignal.timeout(20000)
-      });
-      const providerResult = await providerResponse.json().catch(() => ({}));
-      const checkoutUrl = providerResult.data && providerResult.data.checkout_url;
-      if (!providerResponse.ok || providerResult.status !== "success" || !checkoutUrl || !checkoutUrl.startsWith("https://")) {
-        await pool.query("UPDATE invoice_payments SET status = 'failed', verification_note = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, "Could not initialize PayChangu checkout."]);
-        return res.status(502).json({ error: "We couldn't start checkout. Please try again or contact the business." });
+    const customerParts = String(invoice.customer_name || "Customer").trim().split(/\\s+/);
+    const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking";
+    res.status(201).json({
+      payment: {
+        id, tx_ref: txRef, amount, currency: invoice.currency || "MWK",
+        checkout: {
+          public_key: PAYCHANGU_PUBLIC_KEY,
+          tx_ref: txRef,
+          amount,
+          currency: invoice.currency || "MWK",
+          callback_url: invoiceUrl,
+          return_url: invoiceUrl,
+          customer: {
+            email,
+            first_name: customerParts[0] || "Customer",
+            last_name: customerParts.slice(1).join(" ")
+          },
+          customization: { title: "Tambala Pay", description: invoice.invoice_number + " — " + invoice.description },
+          meta: { invoice_id: invoice.id, invoice_number: invoice.invoice_number, payment_id: id }
+        }
       }
-      await pool.query("UPDATE invoice_payments SET checkout_url = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, checkoutUrl]);
-      res.status(201).json({ payment: { id, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout_url: checkoutUrl } });
-    } catch (providerError) {
-      await pool.query("UPDATE invoice_payments SET status = 'failed', verification_note = $2, updated_at = NOW() WHERE tx_ref = $1", [txRef, "PayChangu connection failed."]);
-      throw providerError;
-    }
+    });
   } catch (error) { next(error); }
 });
 
