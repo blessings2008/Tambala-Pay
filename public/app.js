@@ -1,7 +1,7 @@
 (() => {
   const TOKEN_KEY = "tambalaPayInternalToken";
   const $ = (selector) => document.querySelector(selector);
-  const state = { token: localStorage.getItem(TOKEN_KEY) || "", requests: [] };
+  const state = { token: localStorage.getItem(TOKEN_KEY) || "", requests: [], invoices: [] };
 
   const money = (value) => new Intl.NumberFormat("en-MW", {
     style: "currency", currency: "MWK", maximumFractionDigits: 0
@@ -57,17 +57,39 @@
 
   async function loadWorkspace() {
     try {
-      const [summary, list] = await Promise.all([api("/api/summary"), api("/api/requests")]);
+      const [summary, list, invoiceList] = await Promise.all([api("/api/summary"), api("/api/requests"), api("/api/invoices")]);
       $("#collected").textContent = money(summary.collected_mwk);
       $("#pendingAmount").textContent = money(summary.pending_mwk);
       $("#successfulCount").textContent = summary.successful_payments || 0;
       $("#totalCount").textContent = summary.total_requests || 0;
       state.requests = list.requests || [];
+      state.invoices = invoiceList.invoices || [];
       renderRequests();
+      renderInvoices();
     } catch (error) {
       showToast(error.message);
       if (error.message.includes("Internal access")) lockWorkspace();
     }
+  }
+
+  function renderInvoices() {
+    const body = $("#invoicesBody");
+    if (!state.invoices.length) {
+      body.innerHTML = '<tr><td colspan="8" class="empty-cell">No invoices yet. Create one above.</td></tr>';
+      $("#invoicesFoot").textContent = "Create each invoice once, then record one or more partial payments against it.";
+      return;
+    }
+    body.innerHTML = state.invoices.map((item) => {
+      const actions = item.status !== "paid" && item.status !== "cancelled"
+        ? '<button class="table-action" data-pay-invoice="' + escapeHtml(item.id) + '" data-balance="' + escapeHtml(item.balance_due) + '">Collect payment</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>'
+        : '<button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
+      return '<tr><td><div class="reference">' + escapeHtml(item.invoice_number) + '</div><div class="subline">' + escapeHtml(item.description) + '</div></td>' +
+        '<td>' + escapeHtml(item.customer_name || "Not specified") + '<div class="subline">' + escapeHtml(item.customer_email || "") + '</div></td>' +
+        '<td class="amount-cell">' + money(item.total_amount) + '</td><td>' + money(item.paid_amount) + '</td>' +
+        '<td class="amount-cell">' + money(item.balance_due) + '</td><td>' + statusPill(item.status === "open" ? "pending" : item.status === "partially_paid" ? "pending" : item.status) + '</td>' +
+        '<td class="date-cell">' + escapeHtml(date(item.created_at)) + '</td><td class="actions-cell">' + actions + '</td></tr>';
+    }).join("");
+    $("#invoicesFoot").textContent = state.invoices.length + " invoices · Collect any amount up to the outstanding balance. Each successful payment gets its own receipt.";
   }
 
   function statusPill(status) {
@@ -161,39 +183,66 @@
   $("#signOut").addEventListener("click", lockWorkspace);
   $("#refreshButton").addEventListener("click", loadWorkspace);
   $("#requestsBody").addEventListener("click", handleTableAction);
+  $("#refreshInvoices").addEventListener("click", loadWorkspace);
+  $("#invoicesBody").addEventListener("click", async (event) => {
+    const payButton = event.target.closest("[data-pay-invoice]");
+    const detailsButton = event.target.closest("[data-invoice-details]");
+    if (payButton) {
+      const balance = Number(payButton.dataset.balance);
+      const raw = window.prompt("Enter the amount to collect now (MWK). Outstanding balance: " + money(balance), String(balance));
+      if (raw === null) return;
+      const amount = Number(raw);
+      if (!Number.isFinite(amount) || amount < 1 || amount > balance) {
+        showToast("Enter an amount from MWK 1 up to the outstanding balance.");
+        return;
+      }
+      try {
+        const result = await api("/api/invoices/" + encodeURIComponent(payButton.dataset.payInvoice) + "/payments", {
+          method: "POST", body: JSON.stringify({ amount })
+        });
+        await loadWorkspace();
+        const link = result.payment.checkout_url;
+        if (window.confirm("Payment link created for " + money(amount) + ". Open checkout now? Choose Cancel to copy the link.")) {
+          window.open(link, "_blank", "noopener,noreferrer");
+        } else {
+          try { await navigator.clipboard.writeText(link); showToast("Partial-payment checkout link copied."); }
+          catch { window.prompt("Copy this checkout link:", link); }
+        }
+      } catch (error) { showToast(error.message); }
+    }
+    if (detailsButton) {
+      try {
+        const data = await api("/api/invoices/" + encodeURIComponent(detailsButton.dataset.invoiceDetails));
+        const invoice = data.invoice;
+        const paymentLines = (data.payments || []).map(p => p.tx_ref + " — " + money(p.amount) + " — " + p.status + (p.receipt_number ? " — receipt " + p.receipt_number : "")).join("\\n");
+        window.alert(invoice.invoice_number + "\\n" + invoice.description + "\\nTotal: " + money(invoice.total_amount) + "\\nPaid: " + money(invoice.paid_amount) + "\\nBalance: " + money(invoice.balance_due) + "\\n\\nPayments:\\n" + (paymentLines || "No payments yet."));
+      } catch (error) { showToast(error.message); }
+    }
+  });
 
   $("#requestForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = $("#createButton");
     button.disabled = true;
     button.textContent = "Creating secure checkout…";
-    message($("#requestMessage"), "Creating the request with PayChangu…");
+    message($("#requestMessage"), "Creating invoice…");
     const payload = {
       description: $("#description").value.trim(),
-      amount: Number($("#amount").value),
+      totalAmount: Number($("#amount").value),
       customerName: $("#customerName").value.trim(),
       customerEmail: $("#customerEmail").value.trim()
     };
     try {
-      const result = await api("/api/requests", { method: "POST", body: JSON.stringify(payload) });
+      const result = await api("/api/invoices", { method: "POST", body: JSON.stringify(payload) });
       $("#requestForm").reset();
-      message($("#requestMessage"), "Payment request created. Share the checkout link with your customer.", "success");
-      showToast("Payment request created.");
+      message($("#requestMessage"), "Invoice " + result.invoice.invoice_number + " created. You can now collect payments in parts from the invoice ledger.", "success");
+      showToast("Invoice created.");
       await loadWorkspace();
-      const checkout = result.request.checkout_url;
-      if (checkout) {
-        const shouldOpen = window.confirm("Payment request created. Open the PayChangu checkout now? Choose Cancel to copy the link from the requests table.");
-        if (shouldOpen) window.open(checkout, "_blank", "noopener,noreferrer");
-        else {
-          try { await navigator.clipboard.writeText(checkout); showToast("Checkout link copied."); }
-          catch { window.prompt("Copy this checkout link:", checkout); }
-        }
-      }
     } catch (error) {
       message($("#requestMessage"), error.message, "error");
     } finally {
       button.disabled = false;
-      button.innerHTML = 'Create payment link <span>→</span>';
+      button.innerHTML = 'Create invoice <span>→</span>';
     }
   });
 
