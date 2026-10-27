@@ -33,6 +33,10 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000
 });
 
+// Render terminates HTTPS at its proxy and forwards the client address.
+// Trust the single proxy hop so express-rate-limit can identify requests safely.
+app.set("trust proxy", 1);
+
 app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
