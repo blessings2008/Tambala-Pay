@@ -102,7 +102,8 @@
   }
 
   function printReceipt(receipt) {
-    const win = window.open("", "_blank", "noopener,noreferrer,width=720,height=820");
+    const win = window.open("", "_blank", "width=720,height=820");
+    if (win) win.opener = null;
     if (!win) {
       showToast("Allow pop-ups to print the receipt.");
       return;
