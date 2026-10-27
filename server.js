@@ -44,7 +44,47 @@ app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] })
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: "draft-7", legacyHeaders: false });
 app.use("/api", apiLimiter);
 
-// Keep the raw webhook body so the HMAC check uses the bytes PayChangu sent.
+// Record a successful, HMAC-authenticated PayChangu webhook when the verification
+// endpoint itself fails. The signed event must match a pending local payment exactly.
+async function recordSignedWebhookPayment(eventData) {
+  const txRef = String(eventData.tx_ref || eventData.txRef || "").trim();
+  if (!txRef || String(eventData.status || "").toLowerCase() !== "success") {
+    throw new Error("Webhook does not contain a successful transaction reference.");
+  }
+
+  const legacy = await pool.query("SELECT * FROM payment_requests WHERE tx_ref = $1", [txRef]);
+  const modern = legacy.rowCount ? { rowCount: 0, rows: [] } : await pool.query("SELECT * FROM invoice_payments WHERE tx_ref = $1", [txRef]);
+  const isInvoicePayment = !legacy.rowCount && modern.rowCount > 0;
+  const local = legacy.rowCount ? legacy : modern;
+  if (!local.rowCount) throw new Error("Signed webhook reference does not match a local payment.");
+
+  const payment = local.rows[0];
+  if (String(eventData.currency || "").toUpperCase() !== String(payment.currency).trim().toUpperCase()
+      || toMoney(eventData.amount) !== toMoney(payment.amount)) {
+    throw new Error("Signed webhook amount or currency does not match the local payment.");
+  }
+
+  const expectedMode = PAYCHANGU_PUBLIC_KEY.startsWith("pub-test-") ? "test"
+    : PAYCHANGU_PUBLIC_KEY.startsWith("pub-live-") ? "live" : "";
+  if (expectedMode && String(eventData.mode || "").toLowerCase() !== expectedMode) {
+    throw new Error("Signed webhook mode does not match the configured PayChangu key.");
+  }
+
+  const table = isInvoicePayment ? "invoice_payments" : "payment_requests";
+  const receiptNumber = payment.receipt_number || ("REC-" + new Date().getFullYear() + "-" + crypto.randomBytes(4).toString("hex").toUpperCase());
+  await pool.query(
+    "UPDATE " + table + " SET status = 'paid', provider_reference = $2, receipt_number = COALESCE(receipt_number, $3), paid_at = COALESCE(paid_at, NOW()), updated_at = NOW(), verification_note = $4 WHERE tx_ref = $1 AND status <> 'paid'",
+    [txRef, String(eventData.reference || ""), receiptNumber, "Confirmed from HMAC-authenticated PayChangu success webhook; verification endpoint unavailable."]
+  );
+  if (isInvoicePayment) {
+    await pool.query(`UPDATE invoices SET status = CASE
+      WHEN (SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'paid') >= total_amount THEN 'paid'
+      ELSE 'partially_paid' END, updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`, [payment.invoice_id]);
+  }
+  return { txRef, isInvoicePayment };
+}
+
+// Keep the raw webhook body so the HMAC check uses the exact bytes PayChangu sent.
 app.post("/api/paychangu/webhook", express.raw({ type: "application/json", limit: "256kb" }), async (req, res) => {
   try {
     if (!PAYCHANGU_WEBHOOK_SECRET) return res.status(503).send("Webhook secret is not configured.");
@@ -58,9 +98,20 @@ app.post("/api/paychangu/webhook", express.raw({ type: "application/json", limit
 
     const payload = JSON.parse(req.body.toString("utf8"));
     const eventData = payload.data || payload;
-    const txRef = String(eventData.tx_ref || eventData.txRef || eventData.reference || "");
-    if (txRef) await verifyAndUpdatePayment(txRef);
-    return res.sendStatus(200);
+    const txRef = String(eventData.tx_ref || eventData.txRef || "").trim();
+    if (!txRef) return res.status(400).send("Missing transaction reference.");
+
+    try {
+      const verified = await verifyAndUpdatePayment(txRef);
+      if (verified.found && verified.status === "success") return res.sendStatus(200);
+      if (verified.found && ["failed", "cancelled", "canceled"].includes(String(verified.status || "").toLowerCase())) return res.sendStatus(200);
+      throw new Error("Provider verification did not confirm a final successful status.");
+    } catch (verificationError) {
+      console.error("PayChangu API verification failed for signed webhook; checking signed event:", verificationError.message);
+      const recorded = await recordSignedWebhookPayment(eventData);
+      console.warn("Payment recorded from signed PayChangu webhook fallback:", recorded.txRef);
+      return res.sendStatus(200);
+    }
   } catch (error) {
     console.error("PayChangu webhook error:", error.message);
     return res.sendStatus(500);
