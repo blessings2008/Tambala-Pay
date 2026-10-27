@@ -68,7 +68,7 @@ input::placeholder{color:#a5afbd}
 .metric-foot{display:flex;align-items:center;gap:7px;font-size:10px;color:#8290a2;white-space:normal}
 .status-dot{width:6px;height:6px;border-radius:50%}
 .status-dot.green{background:#2cb58b}
-.content-grid{display:grid;grid-template-columns:minmax(0,1.03fr) minmax(0,.97fr);gap:18px;margin-bottom:20px}
+.content-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;margin-bottom:20px}
 .panel{background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);min-width:0}
 .create-panel,.steps-panel{padding:23px}
 .panel-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}
