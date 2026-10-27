@@ -93,6 +93,22 @@
       <footer class="footer"><span>Tambala Pay <span class="footer-separator">•</span> Built for Tambala Technologies</span><span>Payments verified server-side</span></footer>
     </main>
   </div>
+  <div id="qrDialog" class="qr-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+    <section class="qr-card">
+      <button id="closeQr" class="qr-close" type="button" aria-label="Close QR code">×</button>
+      <div class="eyebrow">TAMBALA PAY / PAYMENT QR</div>
+      <h2 id="qrTitle">Scan to pay</h2>
+      <p id="qrDescription" class="qr-description">Scan this code with the customer's phone to open the secure checkout.</p>
+      <div class="qr-frame"><img id="qrImage" alt="QR code linking to the secure PayChangu checkout"></div>
+      <div id="qrAmount" class="qr-amount"></div>
+      <div class="qr-actions">
+        <a id="qrOpenLink" class="button button-primary" href="#" target="_blank" rel="noopener noreferrer">Open checkout ↗</a>
+        <button id="downloadQr" class="button button-secondary" type="button">Download QR</button>
+        <button id="copyQrLink" class="button button-secondary" type="button">Copy payment link</button>
+      </div>
+      <p class="qr-footnote">The QR code opens PayChangu's hosted checkout. It is not proof of payment; Tambala Pay verifies every payment before issuing a receipt.</p>
+    </section>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/app.js" defer></script>
 </body>
