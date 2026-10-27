@@ -46,6 +46,29 @@
     $("#closeQr").focus();
   }
 
+  async function showInvoiceLinkPreview(invoice) {
+    try {
+      const url = window.location.origin + "/invoice/" + encodeURIComponent(invoice.id);
+      const response = await fetch("/api/public/invoices/" + encodeURIComponent(invoice.id) + "/qr", {
+        headers: { Authorization: "Bearer " + state.token }, cache: "no-store"
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not prepare invoice QR code.");
+      state.qrPayment = {
+        qr_data_url: data.qr_data_url, checkout_url: url,
+        tx_ref: "invoice-" + invoice.invoice_number, amount: invoice.total_amount
+      };
+      $("#qrTitle").textContent = "Share " + invoice.invoice_number;
+      $("#qrDescription").textContent = "This QR code opens the customer's invoice page, where they can see the balance, view receipts and pay in parts.";
+      $("#qrImage").src = data.qr_data_url;
+      $("#qrImage").alt = "QR code linking to invoice " + invoice.invoice_number;
+      $("#qrAmount").textContent = money(invoice.total_amount) + " · " + invoice.invoice_number;
+      $("#qrOpenLink").href = url;
+      $("#qrDialog").classList.remove("hidden");
+      $("#closeQr").focus();
+    } catch (error) { showToast(error.message); }
+  }
+
   function setUnlocked(unlocked) {
     $("#accessPanel").classList.toggle("hidden", unlocked);
     $("#workspace").classList.toggle("hidden", !unlocked);
@@ -95,7 +118,7 @@
       const shareUrl = window.location.origin + "/invoice/" + encodeURIComponent(item.id);
       const actions = (item.status !== "paid" && item.status !== "cancelled"
         ? '<button class="table-action" data-pay-invoice="' + escapeHtml(item.id) + '" data-balance="' + escapeHtml(item.balance_due) + '">Collect payment</button> '
-        : '') + '<button class="table-action" data-copy-invoice="' + escapeHtml(item.id) + '">Copy invoice link</button> <button class="table-action" data-share-invoice="' + escapeHtml(item.id) + '">Share</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
+        : '') + '<button class="table-action" data-copy-invoice="' + escapeHtml(item.id) + '">Copy invoice link</button> <button class="table-action" data-share-invoice="' + escapeHtml(item.id) + '">Link preview &amp; QR</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
       return '<tr><td><div class="reference">' + escapeHtml(item.invoice_number) + '</div><div class="subline">' + escapeHtml(item.description) + '</div></td>' +
         '<td>' + escapeHtml(item.customer_name || "Not specified") + '<div class="subline">' + escapeHtml(item.customer_email || "") + '</div></td>' +
         '<td class="amount-cell">' + money(item.total_amount) + '</td><td>' + money(item.paid_amount) + '</td>' +
@@ -236,13 +259,7 @@
     }
     if (shareInvoiceButton) {
       const item = state.invoices.find((row) => row.id === shareInvoiceButton.dataset.shareInvoice);
-      const url = invoiceUrl(shareInvoiceButton.dataset.shareInvoice);
-      const text = "Hello" + (item && item.customer_name ? " " + item.customer_name : "") + ", here is your invoice " + (item ? item.invoice_number : "") + " for " + (item ? money(item.total_amount) : "") + ". You can view it and pay in full or in parts here: " + url;
-      if (navigator.share) {
-        try { await navigator.share({ title: "Tambala Pay invoice", text, url }); } catch (error) { if (error.name !== "AbortError") showToast("Sharing was cancelled."); }
-      } else {
-        window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener,noreferrer");
-      }
+      if (item) await showInvoiceLinkPreview(item);
     }
     if (payButton) {
       const balance = Number(payButton.dataset.balance);
