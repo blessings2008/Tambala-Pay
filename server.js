@@ -106,8 +106,15 @@ async function verifyAndUpdatePayment(txRef) {
     headers: { Accept: "application/json", Authorization: "Bearer " + PAYCHANGU_SECRET_KEY },
     signal: AbortSignal.timeout(15000)
   });
-  if (!response.ok) throw new Error("PayChangu verification returned HTTP " + response.status);
-  const result = await response.json();
+  const responseText = await response.text();
+  if (!response.ok) {
+    // Log the provider's diagnostic response (never log credentials) so HTTP 400s can be diagnosed.
+    console.error("PayChangu verification rejected request:", response.status, responseText.slice(0, 500));
+    throw new Error("PayChangu verification returned HTTP " + response.status);
+  }
+  let result;
+  try { result = JSON.parse(responseText); }
+  catch { throw new Error("PayChangu verification returned invalid JSON."); }
   const data = result.data || {};
   const localPayment = local.rows[0];
   const matches = String(data.tx_ref || "") === txRef
