@@ -27,6 +27,6 @@
     <div class="notice">Payments are processed on PayChangu's secure checkout. Never share your mobile-money PIN or card details with anyone. A receipt is available after the payment is verified.</div>
     <section class="payments" id="paymentsSection"><h2>Payment history</h2><div id="payments"></div></section>
   </section><div class="foot">Tambala Pay · Built by Tambala Technologies</div></main>
-  <script src="https://in.paychangu.com/js/popup.js"></script>
-  <script src="/invoice.js" defer></script>
+  <script id="paychanguPopupSdk" src="https://in.paychangu.com/js/popup.js" onerror="window.paychanguSdkLoadFailed=true"></script>
+  <script src="/invoice.js?v=inline-popup-fix-2" defer></script>
 </body></html>
