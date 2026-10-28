@@ -33,9 +33,9 @@
       </header>
 
       <section id="accessPanel" class="access-card">
-        <div class="access-icon">⌑</div>
-        <div class="access-copy"><h2>Unlock workspace</h2></div>
-        <form id="accessForm" class="access-form"><label for="accessToken">Internal access token</label><div class="input-row"><input id="accessToken" type="password" autocomplete="current-password" placeholder="Paste access token" required><button class="button button-primary" type="submit">Unlock</button></div><p id="accessMessage" class="form-message" role="status"></p></form>
+        <div class="access-icon">T</div>
+        <div class="access-copy"><div class="eyebrow">TAMBALA PAY</div><h2>Sign in</h2><p>Private workspace for Tambala Technologies.</p></div>
+        <form id="accessForm" class="access-form"></form>
       </section>
 
       <div id="workspace" class="hidden">
@@ -49,7 +49,6 @@
         <section class="content-grid">
           <article id="new-request" class="panel create-panel">
             <div class="panel-heading"><div><div class="eyebrow">COLLECT MONEY</div><h2>Create invoice</h2></div><span class="panel-icon">＋</span></div>
-            
             <form id="requestForm">
               <label for="description">Invoice description <span class="required">*</span></label>
               <input id="description" name="description" maxlength="180" placeholder="e.g. Website development deposit" required>
@@ -63,20 +62,17 @@
               <p id="requestMessage" class="form-message" role="status"></p>
             </form>
           </article>
-
-
         </section>
-
 
         <section id="invoices" class="panel activity-panel" style="margin-bottom:20px">
           <div class="panel-heading activity-heading"><div><div class="eyebrow">INVOICE LEDGER</div><h2>Invoices & balances</h2></div><button id="refreshInvoices" class="button button-secondary">↻ Refresh</button></div>
-          <div class="table-wrap"><table><thead><tr><th>INVOICE</th><th>CUSTOMER</th><th>TOTAL</th><th>PAID</th><th>BALANCE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody id="invoicesBody"><tr><td colspan="8" class="empty-cell">Unlock the workspace to load invoices.</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>INVOICE</th><th>CUSTOMER</th><th>TOTAL</th><th>PAID</th><th>BALANCE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody id="invoicesBody"><tr><td colspan="8" class="empty-cell">Sign in to load invoices.</td></tr></tbody></table></div>
           <div id="invoicesFoot" class="table-foot"></div>
         </section>
 
         <section id="activity" class="panel activity-panel">
           <div class="panel-heading activity-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Payment history</h2></div><button id="refreshButton" class="button button-secondary">↻ Refresh</button></div>
-          <div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>PAYMENT</th><th>CUSTOMER</th><th>AMOUNT</th><th>STATUS</th><th>CREATED</th><th></th></tr></thead><tbody id="requestsBody"><tr><td colspan="7" class="empty-cell">Unlock the workspace to load requests.</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>PAYMENT</th><th>CUSTOMER</th><th>AMOUNT</th><th>STATUS</th><th>CREATED</th><th></th></tr></thead><tbody id="requestsBody"><tr><td colspan="7" class="empty-cell">Sign in to load payments.</td></tr></tbody></table></div>
           <div id="tableFoot" class="table-foot"></div>
         </section>
       </div>
@@ -96,10 +92,11 @@
         <button id="downloadQr" class="button button-secondary" type="button">Download QR</button>
         <button id="copyQrLink" class="button button-secondary" type="button">Copy payment link</button>
       </div>
-      
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="/auth.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>
