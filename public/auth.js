@@ -1,6 +1,10 @@
 (() => {
   const TOKEN_KEY = "tambalaPayInternalToken";
+  const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+  const ACTIVITY_EVENTS = ["pointerdown", "keydown", "touchstart", "scroll"];
   let supabaseClient = null;
+  let inactivityTimer = null;
+  let lastActivity = Date.now();
   const $ = (selector) => document.querySelector(selector);
 
   function injectAuthStyles() {
@@ -52,10 +56,43 @@
   async function loadConfig() {
     const response = await fetch("/api/auth/config", { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.supabaseUrl || !data.publishableKey) throw new Error("Authentication is not configured yet.");
+    if (!response.ok || !data.supabaseUrl || !data.publishableKey) {
+      throw new Error(data.error || "Supabase authentication is not configured on the server. Add the Supabase Auth variables in Render.");
+    }
     supabaseClient = window.supabase.createClient(data.supabaseUrl, data.publishableKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
+  }
+
+  function resetInactivityTimer() {
+    lastActivity = Date.now();
+    if (!supabaseClient) return;
+    window.clearTimeout(inactivityTimer);
+    inactivityTimer = window.setTimeout(expireInactiveSession, SESSION_TIMEOUT_MS);
+  }
+
+  async function expireInactiveSession() {
+    if (!supabaseClient) return;
+    if (Date.now() - lastActivity < SESSION_TIMEOUT_MS) {
+      resetInactivityTimer();
+      return;
+    }
+    await supabaseClient.auth.signOut();
+    localStorage.removeItem(TOKEN_KEY);
+    showAuthMessage("Your session expired after 30 minutes of inactivity. Sign in again.", "error");
+    const workspace = $("#workspace");
+    const accessPanel = $("#accessPanel");
+    if (workspace) workspace.classList.add("hidden");
+    if (accessPanel) accessPanel.classList.remove("hidden");
+    const signOut = $("#signOut");
+    if (signOut) signOut.classList.add("hidden");
+  }
+
+  function startActivityTracking() {
+    ACTIVITY_EVENTS.forEach((eventName) => {
+      window.addEventListener(eventName, resetInactivityTimer, { passive: true });
+    });
+    resetInactivityTimer();
   }
 
   async function handSessionToDashboard(session) {
@@ -63,12 +100,14 @@
     localStorage.setItem(TOKEN_KEY, session.access_token);
     const tokenInput = $("#accessToken");
     if (tokenInput) tokenInput.value = session.access_token;
+    resetInactivityTimer();
     const form = $("#accessForm");
     if (form) form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     return true;
   }
 
   async function signInWithGoogle() {
+    if (!supabaseClient) return;
     setLoginBusy(true);
     showAuthMessage("");
     const { error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin + "/" } });
@@ -76,6 +115,7 @@
   }
 
   async function signInWithEmail() {
+    if (!supabaseClient) return;
     const email = $("#loginEmail").value.trim();
     const password = $("#loginPassword").value;
     if (!email || !password) { showAuthMessage("Enter your email and password.", "error"); return; }
@@ -87,6 +127,7 @@
   }
 
   async function sendPasswordReset() {
+    if (!supabaseClient) return;
     const email = $("#loginEmail").value.trim();
     if (!email) { showAuthMessage("Enter your email first.", "error"); return; }
     const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + "/" });
@@ -99,17 +140,23 @@
     renderLogin();
     try {
       await loadConfig();
+      startActivityTracking();
       const { data } = await supabaseClient.auth.getSession();
       if (data.session) await handSessionToDashboard(data.session);
 
       supabaseClient.auth.onAuthStateChange((_event, session) => {
         if (session) handSessionToDashboard(session);
+        else {
+          localStorage.removeItem(TOKEN_KEY);
+          window.clearTimeout(inactivityTimer);
+        }
       });
 
       const signOut = $("#signOut");
       if (signOut) signOut.addEventListener("click", async () => {
         await supabaseClient.auth.signOut();
         localStorage.removeItem(TOKEN_KEY);
+        window.clearTimeout(inactivityTimer);
       }, { capture: true });
     } catch (error) {
       showAuthMessage(error.message, "error");
