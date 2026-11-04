@@ -662,6 +662,80 @@ app.get("/api/requests/:id/receipt", requireInternalAccess, async (req, res, nex
   } catch (error) { next(error); }
 });
 
+
+/**
+ * Stateless MCP endpoint. One authenticated URL exposes the organization-safe
+ * Tambala Pay operations as Model Context Protocol tools.
+ */
+const MCP_TOOLS = [
+  { name: "get_payment_summary", description: "Get aggregate payment counts and MWK totals.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "list_invoices", description: "List the latest invoices (up to 250).", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "create_invoice", description: "Create an invoice in MWK.", inputSchema: { type: "object", properties: { description: { type: "string", maxLength: 180 }, customerName: { type: "string", maxLength: 100 }, customerEmail: { type: "string", format: "email" }, totalAmount: { type: "number", minimum: 1, maximum: 100000000 } }, required: ["description", "totalAmount"], additionalProperties: false } },
+  { name: "get_invoice", description: "Get an invoice and its payment attempts by invoice UUID.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } },
+  { name: "create_invoice_payment", description: "Create a partial-payment checkout for an invoice. This creates a pending attempt, not a confirmed payment.", inputSchema: { type: "object", properties: { id: { type: "string" }, amount: { type: "number", minimum: 1, maximum: 100000000 } }, required: ["id", "amount"], additionalProperties: false } },
+  { name: "get_payment", description: "Look up a payment using its exact transaction reference.", inputSchema: { type: "object", properties: { txRef: { type: "string", maxLength: 100 } }, required: ["txRef"], additionalProperties: false } },
+  { name: "list_payment_requests", description: "List legacy one-off payment requests. Limit defaults to 100 and is capped at 250.", inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 250 } }, additionalProperties: false } },
+  { name: "create_payment_request", description: "Create a one-off MWK payment request and PayChangu checkout.", inputSchema: { type: "object", properties: { description: { type: "string", maxLength: 180 }, customerName: { type: "string", maxLength: 100 }, customerEmail: { type: "string", format: "email" }, amount: { type: "number", minimum: 1, maximum: 100000000 } }, required: ["description", "amount"], additionalProperties: false } },
+  { name: "get_invoice_payment_receipt", description: "Retrieve a receipt for a verified invoice payment using its payment UUID.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } },
+  { name: "get_payment_request_receipt", description: "Retrieve a receipt for a verified one-off payment request using its request UUID.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }
+];
+
+app.post("/mcp", requireInternalAccess, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const rpc = req.body || {};
+  const reply = (result) => res.json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
+  const fail = (code, message) => res.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code, message } });
+  if (rpc.jsonrpc !== "2.0" || typeof rpc.method !== "string") return fail(-32600, "Invalid JSON-RPC request.");
+  if (rpc.method === "notifications/initialized" || rpc.method === "notifications/cancelled") return res.sendStatus(202);
+  if (rpc.method === "initialize") {
+    return reply({
+      protocolVersion: "2025-03-26",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tambala-pay", version: "1.0.0" },
+      instructions: "Use tools for Tambala Pay invoices and payment records. A pending payment is not proof of collection; only server-verified paid status confirms payment."
+    });
+  }
+  if (rpc.method === "ping") return reply({});
+  if (rpc.method === "tools/list") return reply({ tools: MCP_TOOLS });
+  if (rpc.method !== "tools/call") return fail(-32601, "Method not found.");
+  const params = rpc.params || {};
+  const args = params.arguments || {};
+  const routes = {
+    get_payment_summary: ["GET", "/api/summary"],
+    list_invoices: ["GET", "/api/invoices"],
+    create_invoice: ["POST", "/api/invoices", args],
+    get_invoice: ["GET", "/api/invoices/" + encodeURIComponent(args.id || "")],
+    create_invoice_payment: ["POST", "/api/invoices/" + encodeURIComponent(args.id || "") + "/payments", { amount: args.amount }],
+    get_payment: ["GET", "/api/payments/" + encodeURIComponent(args.txRef || "")],
+    list_payment_requests: ["GET", "/api/requests?limit=" + encodeURIComponent(args.limit || 100)],
+    create_payment_request: ["POST", "/api/requests", args],
+    get_invoice_payment_receipt: ["GET", "/api/invoice-payments/" + encodeURIComponent(args.id || "") + "/receipt"],
+    get_payment_request_receipt: ["GET", "/api/requests/" + encodeURIComponent(args.id || "") + "/receipt"]
+  };
+  const selected = routes[params.name];
+  if (!selected) return fail(-32602, "Unknown tool name.");
+  if ((params.name === "get_invoice" || params.name === "create_invoice_payment" || params.name.endsWith("_receipt")) && !args.id) return fail(-32602, "The id argument is required.");
+  if (params.name === "get_payment" && !args.txRef) return fail(-32602, "The txRef argument is required.");
+  if (params.name === "create_invoice" && (!String(args.description || "").trim() || !Number.isFinite(Number(args.totalAmount)))) return fail(-32602, "description and numeric totalAmount are required.");
+  if (params.name === "create_invoice_payment" && !Number.isFinite(Number(args.amount))) return fail(-32602, "A numeric amount is required.");
+  if (params.name === "create_payment_request" && (!String(args.description || "").trim() || !Number.isFinite(Number(args.amount)))) return fail(-32602, "description and numeric amount are required.");
+  try {
+    const method = selected[0];
+    const target = "http://127.0.0.1:" + PORT + selected[1];
+    const response = await fetch(target, {
+      method,
+      headers: { Authorization: "Bearer " + INTERNAL_ACCESS_TOKEN, ...(selected[2] ? { "Content-Type": "application/json" } : {}) },
+      ...(selected[2] ? { body: JSON.stringify(selected[2]) } : {}),
+      signal: AbortSignal.timeout(25000)
+    });
+    const payload = await response.json().catch(() => ({ error: "The API returned a non-JSON response." }));
+    if (!response.ok) return reply({ isError: true, content: [{ type: "text", text: JSON.stringify({ status: response.status, ...payload }) }] });
+    return reply({ content: [{ type: "text", text: JSON.stringify(payload) }] });
+  } catch (error) {
+    return reply({ isError: true, content: [{ type: "text", text: "Tool execution failed: " + error.message }] });
+  }
+});
+
 app.use((error, req, res, next) => {
   console.error("Request error:", error.message);
   if (res.headersSent) return next(error);
