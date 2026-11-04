@@ -95,6 +95,19 @@ The response includes the current payment status and whether it belongs to an in
 - The API uses a shared internal token today, not per-agent API keys or organizational SSO. The org should enforce its own user/agent permissions before calling this service.
 - The OpenAPI document describes existing routes; it does not claim that every endpoint has been tested against the live Render deployment.
 
+
+## Unified MCP endpoint
+
+Tambala Pay also exposes its organization-facing operations through one authenticated MCP endpoint:
+
+- Endpoint: `https://tambala-pay.onrender.com/mcp`
+- Method: `POST`
+- Authentication: `Authorization: Bearer $TAMBALA_PAY_TOKEN`
+- Protocol: stateless JSON-RPC / MCP Streamable HTTP
+- Documentation: [docs/mcp.md](docs/mcp.md)
+
+The MCP server exposes summary, invoice, payment lookup, legacy payment request, and verified receipt tools. It uses the same server-side `INTERNAL_ACCESS_TOKEN`; do not expose that credential to browsers or public agents. The organization should apply its own authorization and approval rules before calling tools that create invoices or payment checkouts. A checkout being created is not evidence of payment; rely only on a server-verified `paid` status.
+
 ## Local setup
 1. Create a Supabase project and open **Connect** in the project dashboard.
 2. Copy the PostgreSQL connection string into `DATABASE_URL`. For a hosted Node.js service such as Render, use the **Session pooler** connection string if the direct database endpoint is not reachable over IPv6; keep SSL enabled.
