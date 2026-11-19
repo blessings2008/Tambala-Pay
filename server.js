@@ -338,6 +338,40 @@ app.post("/api/public/invoices/:id/verify-payment", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post("/api/public/invoices/:id/periods/:period/payments", async (req, res, next) => {
+  try {
+    if (!PAYCHANGU_SECRET_KEY || !PAYCHANGU_PUBLIC_KEY) return res.status(503).json({ error: "Online checkout is not configured yet." });
+    if (process.env.NODE_ENV === "production" && !APP_BASE_URL.startsWith("https://")) return res.status(500).json({ error: "Payment service configuration error." });
+    const period = String(req.params.period || "");
+    if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: "Choose a valid billing month." });
+    const email = String(req.body.email || "").trim().slice(0,254);
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return res.status(400).json({ error: "Enter a valid email address for the receipt." });
+    const found = await pool.query("SELECT * FROM invoices WHERE id=$1 AND recurring_monthly=TRUE AND status <> 'cancelled'", [req.params.id]);
+    if (!found.rowCount) return res.status(404).json({ error: "Monthly invoice not found or no longer active." });
+    const invoice = found.rows[0];
+    const start = new Date(String(invoice.billing_start_date).slice(0,10)+"T00:00:00Z");
+    const chosen = new Date(period+"-01T00:00:00Z");
+    if (chosen < new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth(),1))) return res.status(400).json({ error: "This billing period is before the contract start date." });
+    if (chosen > new Date(Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth()+1,1))) return res.status(400).json({ error: "This billing period is not available yet." });
+    const existing = await pool.query("SELECT id,status,checkout_url FROM invoice_payments WHERE invoice_id=$1 AND period_key=$2 ORDER BY created_at DESC LIMIT 1", [invoice.id,period]);
+    if (existing.rowCount && existing.rows[0].status === "paid") return res.status(409).json({ error: "This month is already marked as paid." });
+    if (existing.rowCount && existing.rows[0].status === "pending") return res.status(409).json({ error: "A checkout for this month is already pending. Complete it or contact the business before retrying." });
+    const id = crypto.randomUUID();
+    const txRef = await makeInvoicePaymentReference();
+    const amount = toMoney(invoice.total_amount);
+    await pool.query("INSERT INTO invoice_payments (id,invoice_id,tx_ref,amount,period_key) VALUES ($1,$2,$3,$4,$5)",[id,invoice.id,txRef,amount,period]);
+    const customerParts = String(invoice.customer_name || "Customer").trim().split(/\\s+/);
+    const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking";
+    res.status(201).json({ payment: { id, tx_ref:txRef, amount, currency:invoice.currency || "MWK", checkout: {
+      public_key:PAYCHANGU_PUBLIC_KEY,tx_ref:txRef,amount,currency:invoice.currency || "MWK",
+      callback_url:invoiceUrl,return_url:invoiceUrl,
+      customer:{email,first_name:customerParts[0] || "Customer",last_name:customerParts.slice(1).join(" ")},
+      customization:{title:"Tambala Pay",description:invoice.invoice_number+" — "+period+" monthly payment"},
+      meta:{invoice_id:invoice.id,invoice_number:invoice.invoice_number,payment_id:id,billing_period:period}
+    }}});
+  } catch(error) { next(error); }
+});
+
 app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
   try {
     if (!PAYCHANGU_SECRET_KEY) return res.status(503).json({ error: "Online checkout is not configured yet. Please contact the business that issued this invoice." });
