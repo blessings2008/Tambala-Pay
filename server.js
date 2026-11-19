@@ -78,6 +78,7 @@ async function recordSignedWebhookPayment(eventData) {
   );
   if (isInvoicePayment) {
     await pool.query(`UPDATE invoices SET status = CASE
+      WHEN recurring_monthly THEN 'open'
       WHEN (SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'paid') >= total_amount THEN 'paid'
       ELSE 'partially_paid' END, updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`, [payment.invoice_id]);
   }
@@ -203,6 +204,7 @@ async function verifyAndUpdatePayment(txRef) {
     );
     if (isInvoicePayment) {
       await pool.query(`UPDATE invoices SET status = CASE
+        WHEN recurring_monthly THEN 'open'
         WHEN (SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'paid') >= total_amount THEN 'paid'
         ELSE 'partially_paid' END, updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`, [localPayment.invoice_id]);
     }
@@ -271,6 +273,10 @@ async function initializeDatabase() {
   await pool.query("CREATE INDEX IF NOT EXISTS invoices_created_at_idx ON invoices (created_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS invoice_payments_invoice_id_idx ON invoice_payments (invoice_id, created_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS invoice_payments_status_idx ON invoice_payments (status)");
+  await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS recurring_monthly BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS billing_start_date DATE");
+  await pool.query("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS period_key TEXT");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS invoice_payments_invoice_period_paid_idx ON invoice_payments (invoice_id, period_key) WHERE status = 'paid' AND period_key IS NOT NULL");
 }
 
 app.get("/api/health", (req, res) => {
@@ -284,19 +290,33 @@ app.get("/api/public/invoices/:id", async (req, res, next) => {
   try {
     const result = await pool.query(`
       SELECT i.id, i.invoice_number, i.description, i.customer_name, i.total_amount, i.currency,
-        i.status, i.created_at, i.due_at,
-        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0)::numeric(12,2) AS paid_amount,
+        i.status, i.created_at, i.due_at, i.recurring_monthly, i.billing_start_date,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid' AND p.period_key IS NULL), 0)::numeric(12,2) AS paid_amount,
         GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due
       FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
       WHERE i.id = $1 GROUP BY i.id
     `, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: "Invoice not found." });
     const payments = await pool.query(
-      "SELECT id, amount, currency, status, receipt_number, created_at, paid_at FROM invoice_payments WHERE invoice_id = $1 AND status = 'paid' ORDER BY paid_at DESC",
+      "SELECT id, amount, currency, status, receipt_number, created_at, paid_at, period_key FROM invoice_payments WHERE invoice_id = $1 AND status = 'paid' ORDER BY paid_at DESC",
       [req.params.id]
     );
+    const pendingPeriods = await pool.query("SELECT period_key FROM invoice_payments WHERE invoice_id = $1 AND period_key IS NOT NULL AND status = 'pending'", [req.params.id]);
+    const periods = [];
+    if (result.rows[0].recurring_monthly && result.rows[0].billing_start_date) {
+      const start = new Date(String(result.rows[0].billing_start_date).slice(0,10) + "T00:00:00Z");
+      const now = new Date();
+      const count = Math.max(12, (now.getUTCFullYear()-start.getUTCFullYear())*12 + now.getUTCMonth()-start.getUTCMonth() + 2);
+      const paid = new Set(payments.rows.map(p => p.period_key).filter(Boolean));
+      const pending = new Set(pendingPeriods.rows.map(p => p.period_key));
+      for (let n=0; n<Math.min(count,120); n++) {
+        const d = new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+n,1));
+        const key = d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0");
+        periods.push({period_key:key,label:d.toLocaleDateString("en",{month:"long",year:"numeric",timeZone:"UTC"}),status:paid.has(key)?"paid":pending.has(key)?"pending":d>new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1))?"upcoming":"due"});
+      }
+    }
     res.set("Cache-Control", "no-store");
-    res.json({ invoice: result.rows[0], payments: payments.rows });
+    res.json({ invoice: result.rows[0], payments: payments.rows, periods });
   } catch (error) { next(error); }
 });
 
@@ -414,16 +434,19 @@ app.post("/api/invoices", requireInternalAccess, async (req, res, next) => {
     const customerName = String(req.body.customerName || "").trim().slice(0, 100);
     const customerEmail = String(req.body.customerEmail || "").trim().slice(0, 254);
     const totalAmount = toMoney(req.body.totalAmount);
+    const recurringMonthly = req.body.recurringMonthly === true;
+    const billingStartDate = String(req.body.billingStartDate || "").trim();
+    if (recurringMonthly && !/^\\d{4}-\\d{2}-\\d{2}$/.test(billingStartDate)) return res.status(400).json({ error: "Choose a valid monthly billing start date." });
     if (!description) return res.status(400).json({ error: "Invoice description is required." });
     if (totalAmount === null || totalAmount < 1 || totalAmount > 100000000) return res.status(400).json({ error: "Enter an invoice total between MWK 1 and MWK 100,000,000." });
     if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) return res.status(400).json({ error: "Enter a valid customer email address." });
     const id = crypto.randomUUID();
     const invoiceNumber = "INV-" + new Date().getFullYear() + "-" + crypto.randomBytes(4).toString("hex").toUpperCase();
     const result = await pool.query(
-      "INSERT INTO invoices (id, invoice_number, description, customer_name, customer_email, total_amount) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
-      [id, invoiceNumber, description, customerName || null, customerEmail || null, totalAmount]
+      "INSERT INTO invoices (id, invoice_number, description, customer_name, customer_email, total_amount, recurring_monthly, billing_start_date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+      [id, invoiceNumber, description, customerName || null, customerEmail || null, totalAmount, recurringMonthly, recurringMonthly ? billingStartDate : null]
     );
-    res.status(201).json({ invoice: { ...result.rows[0], paid_amount: "0.00", balance_due: String(totalAmount) } });
+    res.status(201).json({ invoice: { ...result.rows[0], paid_amount: "0.00", balance_due: String(totalAmount), recurring_monthly: recurringMonthly } });
   } catch (error) { next(error); }
 });
 
