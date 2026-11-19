@@ -291,7 +291,7 @@ app.get("/api/public/invoices/:id", async (req, res, next) => {
     const result = await pool.query(`
       SELECT i.id, i.invoice_number, i.description, i.customer_name, i.total_amount, i.currency,
         i.status, i.created_at, i.due_at, i.recurring_monthly, i.billing_start_date,
-        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid' AND p.period_key IS NULL), 0)::numeric(12,2) AS paid_amount,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0)::numeric(12,2) AS paid_amount,
         GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due
       FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
       WHERE i.id = $1 GROUP BY i.id
