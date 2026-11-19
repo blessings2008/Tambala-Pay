@@ -452,7 +452,7 @@ app.get("/api/invoices", requireInternalAccess, async (req, res, next) => {
   try {
     const result = await pool.query(`
       SELECT i.id, i.invoice_number, i.description, i.customer_name, i.customer_email,
-        i.total_amount, i.currency, i.status, i.created_at, i.due_at,
+        i.total_amount, i.currency, i.status, i.created_at, i.due_at, i.recurring_monthly, i.billing_start_date,
         COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0)::numeric(12,2) AS paid_amount,
         GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due
       FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
@@ -488,14 +488,14 @@ app.get("/api/invoices/:id", requireInternalAccess, async (req, res, next) => {
   try {
     const invoice = await pool.query(`
       SELECT i.id, i.invoice_number, i.description, i.customer_name, i.customer_email,
-        i.total_amount, i.currency, i.status, i.created_at, i.due_at,
+        i.total_amount, i.currency, i.status, i.created_at, i.due_at, i.recurring_monthly, i.billing_start_date,
         COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0)::numeric(12,2) AS paid_amount,
         GREATEST(i.total_amount - COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0), 0)::numeric(12,2) AS balance_due
       FROM invoices i LEFT JOIN invoice_payments p ON p.invoice_id = i.id
       WHERE i.id = $1 GROUP BY i.id
     `, [req.params.id]);
     if (!invoice.rowCount) return res.status(404).json({ error: "Invoice not found." });
-    const payments = await pool.query("SELECT id, tx_ref, amount, currency, status, checkout_url, receipt_number, created_at, paid_at FROM invoice_payments WHERE invoice_id = $1 ORDER BY created_at DESC", [req.params.id]);
+    const payments = await pool.query("SELECT id, tx_ref, amount, currency, status, checkout_url, receipt_number, created_at, paid_at, period_key FROM invoice_payments WHERE invoice_id = $1 ORDER BY created_at DESC", [req.params.id]);
     res.json({ invoice: invoice.rows[0], payments: payments.rows });
   } catch (error) { next(error); }
 });
