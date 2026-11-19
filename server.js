@@ -343,7 +343,7 @@ app.post("/api/public/invoices/:id/periods/:period/payments", async (req, res, n
     if (!PAYCHANGU_SECRET_KEY || !PAYCHANGU_PUBLIC_KEY) return res.status(503).json({ error: "Online checkout is not configured yet." });
     if (process.env.NODE_ENV === "production" && !APP_BASE_URL.startsWith("https://")) return res.status(500).json({ error: "Payment service configuration error." });
     const period = String(req.params.period || "");
-    if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: "Choose a valid billing month." });
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: "Choose a valid billing month." });
     const email = String(req.body.email || "").trim().slice(0,254);
     if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return res.status(400).json({ error: "Enter a valid email address for the receipt." });
     const found = await pool.query("SELECT * FROM invoices WHERE id=$1 AND recurring_monthly=TRUE AND status <> 'cancelled'", [req.params.id]);
@@ -470,7 +470,7 @@ app.post("/api/invoices", requireInternalAccess, async (req, res, next) => {
     const totalAmount = toMoney(req.body.totalAmount);
     const recurringMonthly = req.body.recurringMonthly === true;
     const billingStartDate = String(req.body.billingStartDate || "").trim();
-    if (recurringMonthly && !/^\\d{4}-\\d{2}-\\d{2}$/.test(billingStartDate)) return res.status(400).json({ error: "Choose a valid monthly billing start date." });
+    if (recurringMonthly && !/^\d{4}-\d{2}-\d{2}$/.test(billingStartDate)) return res.status(400).json({ error: "Choose a valid monthly billing start date." });
     if (!description) return res.status(400).json({ error: "Invoice description is required." });
     if (totalAmount === null || totalAmount < 1 || totalAmount > 100000000) return res.status(400).json({ error: "Enter an invoice total between MWK 1 and MWK 100,000,000." });
     if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) return res.status(400).json({ error: "Enter a valid customer email address." });
