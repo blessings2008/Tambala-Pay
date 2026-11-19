@@ -213,6 +213,14 @@
     message($("#accessMessage"), "Workspace locked.");
   }
 
+  $("#recurringMonthly").addEventListener("change", () => {
+    $("#billingStartWrap").classList.toggle("hidden", !$("#recurringMonthly").checked);
+    if ($("#recurringMonthly").checked && !$("#billingStartDate").value) {
+      const now = new Date();
+      $("#billingStartDate").value = now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0");
+    }
+  });
+
   $("#accessForm").addEventListener("submit", (event) => {
     event.preventDefault();
     unlock($("#accessToken").value.trim());
@@ -300,7 +308,9 @@
       description: $("#description").value.trim(),
       totalAmount: Number($("#amount").value),
       customerName: $("#customerName").value.trim(),
-      customerEmail: $("#customerEmail").value.trim()
+      customerEmail: $("#customerEmail").value.trim(),
+      recurringMonthly: $("#recurringMonthly").checked,
+      billingStartDate: $("#recurringMonthly").checked ? $("#billingStartDate").value : null
     };
     try {
       const result = await api("/api/invoices", { method: "POST", body: JSON.stringify(payload) });
