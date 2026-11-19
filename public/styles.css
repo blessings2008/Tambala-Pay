@@ -140,3 +140,5 @@ tbody tr:hover{background:#fbfcfd}
 .qr-actions .button{font-size:11px;padding:10px 12px}
 .qr-footnote{font-size:10px;line-height:1.55;color:#8b97a7;margin:17px 0 0}
 @media(max-width:480px){.qr-card{padding:28px 16px 19px}.qr-frame{width:220px;height:220px}.qr-actions{display:grid;grid-template-columns:1fr 1fr}.qr-actions #qrOpenLink{grid-column:1/-1}}
+
+.check-row{display:flex;align-items:center;gap:10px;margin:16px 0 10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#f8fafb;font-size:13px;font-weight:650}.check-row input{width:17px;height:17px;accent-color:#176d55}.check-row + div label{display:block;margin:10px 0 7px}.check-row + div input{width:100%}
