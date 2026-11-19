@@ -3,6 +3,7 @@
   const $ = (s) => document.querySelector(s);
   let invoice = null;
   let currentReceipt = null;
+  let selectedPeriod = null;
   const money = (v) => new Intl.NumberFormat("en-MW",{style:"currency",currency:"MWK",maximumFractionDigits:0}).format(Number(v||0));
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const setMessage = (text, error=false) => { $("#message").textContent=text; $("#message").className="message"+(error?" error":""); };
@@ -26,15 +27,33 @@
       document.title=invoice.invoice_number+" — Tambala Pay";
       $("#title").textContent=invoice.invoice_number;
       $("#description").textContent=invoice.description+(invoice.customer_name?" · Billed to "+invoice.customer_name:"");
-      $("#total").textContent=money(invoice.total_amount);
+      $("#total").textContent=money(invoice.total_amount)+(invoice.recurring_monthly?" / month":"");
       $("#paid").textContent=money(invoice.paid_amount);
-      $("#balance").textContent=money(invoice.balance_due);
-      $("#amount").max=Number(invoice.balance_due);
+      $("#balance").textContent=invoice.recurring_monthly?"Monthly contract":money(invoice.balance_due);
+      if (invoice.recurring_monthly) {
+        $("#monthlyCalendar").classList.remove("hidden");
+        $("#payForm").querySelector(".label").textContent="Payment amount";
+        $("#amount").value=Number(invoice.total_amount);
+        $("#amount").readOnly=true;
+        $("#amount").max=Number(invoice.total_amount);
+        $("#amount").min=Number(invoice.total_amount);
+        $("#quickAmounts").classList.add("hidden");
+        $("#payButton").textContent="Pay selected month →";
+        const periods=d.periods||[];
+        $("#monthlyPeriods").innerHTML=periods.map(p=>{
+          const disabled=p.status==="paid"||p.status==="pending"||p.status==="upcoming";
+          const label=p.status==="paid"?"Paid":p.status==="pending"?"Payment pending":p.status==="upcoming"?"Upcoming":"Select to pay";
+          return '<div class="payment"><span><strong>'+esc(p.label)+'</strong><br><span class="muted">'+esc(label)+'</span></span>'+
+            (disabled?'<span class="badge">'+esc(label)+'</span>':'<button class="smallbtn" type="button" data-period="'+esc(p.period_key)+'">Pay '+money(invoice.total_amount)+'</button>')+'</div>';
+        }).join("")||'<p class="muted">No billing periods are available.</p>';
+      } else {
+        $("#amount").max=Number(invoice.balance_due);
       $("#amount").placeholder="Up to "+Number(invoice.balance_due).toLocaleString("en-MW");
       const amounts=[Math.min(1000,Number(invoice.balance_due)),Math.min(5000,Number(invoice.balance_due)),Number(invoice.balance_due)].filter((v,i,a)=>v>0&&a.indexOf(v)===i);
       $("#quickAmounts").innerHTML=amounts.map(v=>'<button type="button" data-amount="'+v+'">'+(v===Number(invoice.balance_due)?"Pay full balance":money(v))+'</button>').join("");
       $("#quickAmounts").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>$("#amount").value=b.dataset.amount));
-      $("#payments").innerHTML=(d.payments||[]).length?(d.payments.map(p=>'<div class="payment"><span>'+esc(new Date(p.paid_at||p.created_at).toLocaleDateString())+' · <span class="badge">Verified</span>'+(p.receipt_number?' · '+esc(p.receipt_number):'')+'</span><strong>'+money(p.amount)+'</strong>'+(p.receipt_number?'<button class="smallbtn" type="button" data-view-receipt="'+esc(p.id)+'">View receipt</button>':'')+'</div>').join("")):'<p class="muted">No completed payments yet.</p>';
+      }
+      $("#payments").innerHTML=(d.payments||[]).length?(d.payments.map(p=>'<div class="payment"><span>'+esc(p.period_key||new Date(p.paid_at||p.created_at).toLocaleDateString())+' · <span class="badge">Verified</span>'+(p.receipt_number?' · '+esc(p.receipt_number):'')+'</span><strong>'+money(p.amount)+'</strong>'+(p.receipt_number?'<button class="smallbtn" type="button" data-view-receipt="'+esc(p.id)+'">View receipt</button>':'')+'</div>').join("")):'<p class="muted">No completed payments yet.</p>';
       const qrResponse = await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/qr",{cache:"no-store"});
       const qrData = await qrResponse.json();
       if(qrResponse.ok && qrData.qr_data_url) { $("#invoiceQr").src=qrData.qr_data_url; $("#downloadInvoiceQr").dataset.qr=qrData.qr_data_url; }
@@ -100,13 +119,23 @@
   });
   $("#closeReceipt").addEventListener("click",()=>$("#receiptView").classList.add("hidden"));
 
+  $("#monthlyPeriods").addEventListener("click",e=>{
+    const button=e.target.closest("[data-period]");
+    if(!button)return;
+    selectedPeriod=button.dataset.period;
+    $("#monthlyPeriods").querySelectorAll("[data-period]").forEach(x=>x.classList.toggle("selected",x===button));
+    setMessage("Selected "+button.closest(".payment").querySelector("strong").textContent+". Enter your email, then continue to payment.");
+    $("#payerEmail").focus();
+  });
   $("#payForm").addEventListener("submit",async e=>{
     e.preventDefault(); if(!invoice)return;
     const amount=Number($("#amount").value);
-    if(!Number.isFinite(amount)||amount<1||amount>Number(invoice.balance_due)){setMessage("Enter an amount between MWK 1 and the remaining balance.",true);return;}
+    if (invoice.recurring_monthly && !selectedPeriod) { setMessage("Select the month you are paying for first.",true); return; }
+    if(!Number.isFinite(amount)||amount<1||(!invoice.recurring_monthly && amount>Number(invoice.balance_due))){setMessage("Enter a valid payment amount.",true);return;}
     const b=$("#payButton");b.disabled=true;b.textContent="Preparing secure checkout…";setMessage("");
     try{
-      const r=await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email:$("#payerEmail").value.trim()})});
+      const paymentUrl=invoice.recurring_monthly?("/api/public/invoices/"+encodeURIComponent(id)+"/periods/"+encodeURIComponent(selectedPeriod)+"/payments"):("/api/public/invoices/"+encodeURIComponent(id)+"/payments");
+      const r=await fetch(paymentUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email:$("#payerEmail").value.trim()})});
       const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not start payment.");
       if(window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu popup did not load in this browser. Check your internet connection, then refresh the invoice and try again.");
       if(!d.payment||!d.payment.checkout) throw new Error("Secure checkout could not be prepared. Please try again.");
