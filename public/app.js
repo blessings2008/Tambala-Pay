@@ -118,7 +118,7 @@
     }
     body.innerHTML = state.invoices.map((item) => {
       const shareUrl = window.location.origin + "/invoice/" + encodeURIComponent(item.id);
-      const actions = (item.status !== "paid" && item.status !== "cancelled"
+      const actions = (!item.recurring_monthly && item.status !== "paid" && item.status !== "cancelled"
         ? '<button class="table-action" data-pay-invoice="' + escapeHtml(item.id) + '" data-balance="' + escapeHtml(item.balance_due) + '">Collect payment</button> '
         : '') + '<button class="table-action" data-copy-invoice="' + escapeHtml(item.id) + '">Copy invoice link</button> <button class="table-action" data-share-invoice="' + escapeHtml(item.id) + '">Link preview &amp; QR</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
       return '<tr><td><div class="reference">' + escapeHtml(item.invoice_number) + '</div><div class="subline">' + escapeHtml(item.description) + (item.recurring_monthly ? '<span class="subline">Monthly contract · from ' + escapeHtml(String(item.billing_start_date || "").slice(0,10)) + '</span>' : '') + '</div></td>' +
