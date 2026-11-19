@@ -57,7 +57,7 @@
       const qrResponse = await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/qr",{cache:"no-store"});
       const qrData = await qrResponse.json();
       if(qrResponse.ok && qrData.qr_data_url) { $("#invoiceQr").src=qrData.qr_data_url; $("#downloadInvoiceQr").dataset.qr=qrData.qr_data_url; }
-      if(invoice.status==="paid"||invoice.status==="cancelled"||Number(invoice.balance_due)<=0){$("#payForm").classList.add("hidden");setMessage(invoice.status==="paid"?"This invoice has been paid in full.":"This invoice is not currently open for payment.");}
+      if(invoice.status==="cancelled"||(!invoice.recurring_monthly&&(invoice.status==="paid"||Number(invoice.balance_due)<=0))){$("#payForm").classList.add("hidden");setMessage(invoice.status==="paid"?"This invoice has been paid in full.":"This invoice is not currently open for payment.");}
       const p=new URLSearchParams(location.search).get("payment");
       if(p==="checking") setMessage("Checking payment status…");
       if(p==="success") setMessage("Payment verified.");
