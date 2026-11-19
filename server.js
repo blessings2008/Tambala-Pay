@@ -436,8 +436,8 @@ app.get("/api/public/invoices/:id/qr", async (req, res, next) => {
 app.get("/api/public/payments/:id/receipt", async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT p.tx_ref, i.invoice_number, i.description, i.customer_name, p.amount, p.currency,
-        p.status, p.receipt_number, p.provider_reference, p.paid_at
+      SELECT p.tx_ref, i.invoice_number, CASE WHEN p.period_key IS NOT NULL THEN i.description || ' — ' || p.period_key ELSE i.description END AS description, i.customer_name, p.amount, p.currency,
+        p.status, p.receipt_number, p.provider_reference, p.paid_at, p.period_key
       FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id WHERE p.id = $1
     `, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: "Payment not found." });
@@ -562,7 +562,7 @@ app.get("/api/payments/:txRef", requireInternalAccess, async (req, res, next) =>
     const invoicePayment = await pool.query(`
       SELECT p.id, p.tx_ref, p.invoice_id, i.invoice_number, i.description,
         i.customer_name, p.amount, p.currency, p.status, p.checkout_url,
-        p.provider_reference, p.receipt_number, p.created_at, p.updated_at, p.paid_at
+        p.provider_reference, p.receipt_number, p.created_at, p.updated_at, p.paid_at, p.period_key
       FROM invoice_payments p
       JOIN invoices i ON i.id = p.invoice_id
       WHERE p.tx_ref = $1
@@ -691,9 +691,9 @@ app.get("/api/paychangu/return", async (req, res) => {
 app.get("/api/invoice-payments/:id/receipt", requireInternalAccess, async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT p.tx_ref, i.invoice_number || ' — ' || i.description AS description,
+      SELECT p.tx_ref, i.invoice_number || ' — ' || i.description || CASE WHEN p.period_key IS NOT NULL THEN ' — ' || p.period_key ELSE '' END AS description,
         i.customer_name, i.customer_email, p.amount, p.currency, p.status,
-        p.receipt_number, p.provider_reference, p.paid_at
+        p.receipt_number, p.provider_reference, p.paid_at, p.period_key
       FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id
       WHERE p.id = $1
     `, [req.params.id]);
