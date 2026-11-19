@@ -121,7 +121,7 @@
       const actions = (item.status !== "paid" && item.status !== "cancelled"
         ? '<button class="table-action" data-pay-invoice="' + escapeHtml(item.id) + '" data-balance="' + escapeHtml(item.balance_due) + '">Collect payment</button> '
         : '') + '<button class="table-action" data-copy-invoice="' + escapeHtml(item.id) + '">Copy invoice link</button> <button class="table-action" data-share-invoice="' + escapeHtml(item.id) + '">Link preview &amp; QR</button> <button class="table-action" data-invoice-details="' + escapeHtml(item.id) + '">Details</button>';
-      return '<tr><td><div class="reference">' + escapeHtml(item.invoice_number) + '</div><div class="subline">' + escapeHtml(item.description) + '</div></td>' +
+      return '<tr><td><div class="reference">' + escapeHtml(item.invoice_number) + '</div><div class="subline">' + escapeHtml(item.description) + (item.recurring_monthly ? '<span class="subline">Monthly contract · from ' + escapeHtml(String(item.billing_start_date || "").slice(0,10)) + '</span>' : '') + '</div></td>' +
         '<td>' + escapeHtml(item.customer_name || "Not specified") + '<div class="subline">' + escapeHtml(item.customer_email || "") + '</div></td>' +
         '<td class="amount-cell">' + money(item.total_amount) + '</td><td>' + money(item.paid_amount) + '</td>' +
         '<td class="amount-cell">' + money(item.balance_due) + '</td><td>' + statusPill(item.status === "open" ? "pending" : item.status === "partially_paid" ? "pending" : item.status) + '</td>' +
