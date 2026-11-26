@@ -9,9 +9,23 @@
   let prepareTimer = null;
   let preparing = false;
   let preparingSignature = null;
+  let checkoutAttemptAt = 0;
   const money = (v) => new Intl.NumberFormat("en-MW",{style:"currency",currency:"MWK",maximumFractionDigits:0}).format(Number(v||0));
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const setMessage = (text, error=false) => { $("#message").textContent=text; $("#message").className="message"+(error?" error":""); };
+  // Surface asynchronous failures from the provider SDK without exposing checkout credentials.
+  window.addEventListener("error", (event) => {
+    if (checkoutAttemptAt && Date.now() - checkoutAttemptAt < 12000) {
+      setMessage("PayChangu's checkout script raised a browser error. Details: " + String(event.message || "unknown script error").slice(0,180), true);
+    }
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    if (checkoutAttemptAt && Date.now() - checkoutAttemptAt < 12000) {
+      const reason = event.reason;
+      const detail = reason && typeof reason.message === "string" ? reason.message : "unknown asynchronous error";
+      setMessage("PayChangu checkout failed asynchronously. Details: " + detail.slice(0,180), true);
+    }
+  });
   async function verifyReturnedPayment() {
     const params = new URLSearchParams(location.search);
     const txRef = params.get("tx_ref");
@@ -207,9 +221,19 @@
       setMessage("PayChangu checkout did not load. Refresh the invoice and try again.",true);return;
     }
     try {
-      window.PaychanguCheckout(preparedCheckout);
-      setMessage("Complete your payment in the PayChangu popup.");
-    } catch(error) { setMessage("PayChangu could not open checkout: "+(error.message||"Please try again."),true); }
+      checkoutAttemptAt = Date.now();
+      const result = window.PaychanguCheckout(preparedCheckout);
+      if (result && typeof result.then === "function") {
+        result.catch(error => setMessage("PayChangu checkout failed: " + String(error && error.message || "unknown asynchronous error").slice(0,180), true));
+      }
+      if (result === false) {
+        setMessage("PayChangu rejected the checkout request. No payment was made.", true);
+      } else {
+        setMessage("PayChangu's popup function was called. Waiting for the checkout window…");
+      }
+    } catch(error) {
+      setMessage("PayChangu could not open checkout: "+String(error && error.message || "unknown error").slice(0,180),true);
+    }
   });
   const returnParams = new URLSearchParams(location.search);
   if (returnParams.has("payment") || returnParams.has("tx_ref")) {
