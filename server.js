@@ -392,11 +392,23 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
     if (!result.rowCount) return res.status(404).json({ error: "Invoice not found." });
     const invoice = result.rows[0];
     if (invoice.status === "cancelled" || invoice.status === "paid") return res.status(409).json({ error: "This invoice is not open for payment." });
-    if (amount > toMoney(invoice.available_amount)) return res.status(400).json({ error: "That amount exceeds the available balance. Refresh the invoice and try again." });
 
-    const id = crypto.randomUUID();
-    const txRef = await makeInvoicePaymentReference();
-    await pool.query("INSERT INTO invoice_payments (id, invoice_id, tx_ref, amount) VALUES ($1,$2,$3,$4)", [id, invoice.id, txRef, amount]);
+    // Reuse an existing pending checkout for the same amount. This lets a customer
+    // reopen a checkout they abandoned without reserving the invoice balance twice.
+    const pending = await pool.query(
+      "SELECT id, tx_ref FROM invoice_payments WHERE invoice_id = $1 AND amount = $2 AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+      [invoice.id, amount]
+    );
+    let id, txRef;
+    if (pending.rowCount) {
+      id = pending.rows[0].id;
+      txRef = pending.rows[0].tx_ref;
+    } else {
+      if (amount > toMoney(invoice.available_amount)) return res.status(400).json({ error: "That amount exceeds the available balance. A previous payment attempt may still be pending. Please complete or verify that attempt before starting another payment." });
+      id = crypto.randomUUID();
+      txRef = await makeInvoicePaymentReference();
+      await pool.query("INSERT INTO invoice_payments (id, invoice_id, tx_ref, amount) VALUES ($1,$2,$3,$4)", [id, invoice.id, txRef, amount]);
+    }
     const customerParts = String(invoice.customer_name || "Customer").trim().split(/\s+/);
     const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking";
     res.status(201).json({
