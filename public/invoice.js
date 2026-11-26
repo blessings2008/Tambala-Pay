@@ -132,7 +132,6 @@
     const amount=Number($("#amount").value);
     if (invoice.recurring_monthly && !selectedPeriod) { setMessage("Select the month you are paying for first.",true); return; }
     if(!Number.isFinite(amount)||amount<1||(!invoice.recurring_monthly && amount>Number(invoice.balance_due))){setMessage("Enter a valid payment amount.",true);return;}
-    const b=$("#payButton");
     const b=$("#payButton");b.disabled=true;b.textContent="Preparing secure checkout…";setMessage("");
     try{
       if(window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu popup did not load in this browser. Check your internet connection, then refresh the invoice and try again.");
