@@ -30,10 +30,11 @@
   async function verifyReturnedPayment() {
     const params = new URLSearchParams(location.search);
     const txRef = params.get("tx_ref");
+    const chargeId = params.get("charge_id");
     if (!txRef) return null;
     const response = await fetch("/api/public/invoices/" + encodeURIComponent(id) + "/verify-payment", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tx_ref: txRef }), cache: "no-store"
+      body: JSON.stringify({ tx_ref: txRef, ...(chargeId ? { charge_id: chargeId } : {}) }), cache: "no-store"
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "We could not verify the payment yet.");
@@ -236,9 +237,13 @@
         type:"standard",
         config:{name:"Tambala Pay",currency:checkout.currency,show_amount:true,redirect_url:redirectUrl},
         onReady:()=>setMessage("Secure payment options are ready below. Choose a method to continue."),
-        onSuccess:()=>{
+        onSuccess:(payment)=>{
           setMessage("Payment submitted. Verifying it with PayChangu…");
-          location.href=redirectUrl+"&status=success";
+          const returnUrl = new URL(redirectUrl, location.origin);
+          const chargeId = payment && (payment.chargeId || payment.charge_id);
+          if (chargeId) returnUrl.searchParams.set("charge_id", String(chargeId));
+          returnUrl.searchParams.set("status", "success");
+          location.href = returnUrl.toString();
         },
         onError:error=>setMessage("PayChangu checkout error: "+String(error&&error.message||"Please try again.").slice(0,180),true)
       });
