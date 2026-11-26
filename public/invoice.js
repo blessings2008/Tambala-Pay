@@ -140,7 +140,7 @@
       const paymentUrl=invoice.recurring_monthly?("/api/public/invoices/"+encodeURIComponent(id)+"/periods/"+encodeURIComponent(selectedPeriod)+"/payments"):("/api/public/invoices/"+encodeURIComponent(id)+"/payments");
       const r=await fetch(paymentUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email:$("#payerEmail").value.trim()})});
       const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not start payment.");
-      if(!d.payment||!d.payment.checkout_url||!/^https:\\/\\//i.test(d.payment.checkout_url)) throw new Error("Secure checkout could not be prepared. Please try again.");
+      if(!d.payment||!d.payment.checkout_url||!d.payment.checkout_url.startsWith("https://")) throw new Error("Secure checkout could not be prepared. Please try again.");
       if(checkoutWindow && !checkoutWindow.closed) checkoutWindow.location.replace(d.payment.checkout_url);
       else { setMessage("Your browser blocked the new tab. Opening secure checkout in this tab."); window.location.assign(d.payment.checkout_url); return; }
       b.textContent="Checkout opened — complete payment in the new tab";
