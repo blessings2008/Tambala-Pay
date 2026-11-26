@@ -5,6 +5,7 @@
   let currentReceipt = null;
   let selectedPeriod = null;
   let preparedCheckout = null;
+  let mountedDropin = false;
   let preparedCheckoutSignature = null;
   let prepareTimer = null;
   let preparing = false;
@@ -104,7 +105,7 @@
     button.disabled=true;
     button.textContent="Preparing payment…";
     try {
-      if (window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu checkout could not load. Check your connection and refresh.");
+      if (window.paychanguSdkLoadFailed || (!window.PayChangu || typeof window.PayChangu.mountCheckoutForm!=="function")) throw new Error("PayChangu checkout could not load. Check your connection and refresh.");
       const paymentUrl=invoice.recurring_monthly
         ? "/api/public/invoices/"+encodeURIComponent(id)+"/periods/"+encodeURIComponent(selectedPeriod)+"/payments"
         : "/api/public/invoices/"+encodeURIComponent(id)+"/payments";
@@ -217,22 +218,37 @@
       scheduleCheckoutPreparation();
       return;
     }
-    if(window.paychanguSdkLoadFailed||typeof window.PaychanguCheckout!=="function"){
-      setMessage("PayChangu checkout did not load. Refresh the invoice and try again.",true);return;
+    if(window.paychanguSdkLoadFailed||!window.PayChangu||typeof window.PayChangu.mountCheckoutForm!=="function"){
+      setMessage("PayChangu's embedded checkout could not load. Refresh the invoice and try again.",true);return;
     }
+    if(mountedDropin){$("#wrapper").scrollIntoView({behavior:"smooth",block:"center"});return;}
     try {
-      checkoutAttemptAt = Date.now();
-      const result = window.PaychanguCheckout(preparedCheckout);
-      if (result && typeof result.then === "function") {
-        result.catch(error => setMessage("PayChangu checkout failed: " + String(error && error.message || "unknown asynchronous error").slice(0,180), true));
-      }
-      if (result === false) {
-        setMessage("PayChangu rejected the checkout request. No payment was made.", true);
-      } else {
-        setMessage("PayChangu's popup function was called. Waiting for the checkout window…");
-      }
+      checkoutAttemptAt=Date.now();
+      const checkout=preparedCheckout;
+      const redirectUrl=checkout.return_url+(checkout.return_url.includes("?")?"&":"?")+"tx_ref="+encodeURIComponent(checkout.tx_ref);
+      window.PayChangu.mountCheckoutForm({
+        target:"#wrapper",
+        publicKey:checkout.public_key,
+        formKey:"tambala-invoice-"+invoice.id,
+        email:checkout.customer.email,
+        amount:checkout.amount,
+        paymentReference:checkout.tx_ref,
+        type:"standard",
+        config:{name:"Tambala Pay",currency:checkout.currency,show_amount:true,redirect_url:redirectUrl},
+        onReady:()=>setMessage("Secure payment options are ready below. Choose a method to continue."),
+        onSuccess:()=>{
+          setMessage("Payment submitted. Verifying it with PayChangu…");
+          location.href=redirectUrl+"&status=success";
+        },
+        onError:error=>setMessage("PayChangu checkout error: "+String(error&&error.message||"Please try again.").slice(0,180),true)
+      });
+      mountedDropin=true;
+      $("#payButton").disabled=true;
+      $("#payButton").textContent="Checkout loaded below";
+      setMessage("Loading secure payment options below…");
+      $("#wrapper").scrollIntoView({behavior:"smooth",block:"center"});
     } catch(error) {
-      setMessage("PayChangu could not open checkout: "+String(error && error.message || "unknown error").slice(0,180),true);
+      setMessage("Could not load PayChangu's embedded checkout: "+String(error&&error.message||"unknown error").slice(0,180),true);
     }
   });
   const returnParams = new URLSearchParams(location.search);
