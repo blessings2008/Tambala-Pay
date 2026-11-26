@@ -6,6 +6,8 @@
   let selectedPeriod = null;
   let preparedCheckout = null;
   let preparedCheckoutSignature = null;
+  let prepareTimer = null;
+  let preparing = false;
   const money = (v) => new Intl.NumberFormat("en-MW",{style:"currency",currency:"MWK",maximumFractionDigits:0}).format(Number(v||0));
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const setMessage = (text, error=false) => { $("#message").textContent=text; $("#message").className="message"+(error?" error":""); };
@@ -40,7 +42,7 @@
         $("#amount").max=Number(invoice.total_amount);
         $("#amount").min=Number(invoice.total_amount);
         $("#quickAmounts").classList.add("hidden");
-        $("#payButton").textContent="Pay selected month →";
+        $("#payButton").textContent="Pay Now";
         const periods=d.periods||[];
         $("#monthlyPeriods").innerHTML=periods.map(p=>{
           const disabled=p.status==="paid"||p.status==="pending"||p.status==="upcoming";
@@ -50,10 +52,10 @@
         }).join("")||'<p class="muted">No billing periods are available.</p>';
       } else {
         $("#amount").max=Number(invoice.balance_due);
-      $("#amount").placeholder="Up to "+Number(invoice.balance_due).toLocaleString("en-MW");
-      const amounts=[Math.min(1000,Number(invoice.balance_due)),Math.min(5000,Number(invoice.balance_due)),Number(invoice.balance_due)].filter((v,i,a)=>v>0&&a.indexOf(v)===i);
-      $("#quickAmounts").innerHTML=amounts.map(v=>'<button type="button" data-amount="'+v+'">'+(v===Number(invoice.balance_due)?"Pay full balance":money(v))+'</button>').join("");
-      $("#quickAmounts").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>$("#amount").value=b.dataset.amount));
+        $("#amount").placeholder="Up to "+Number(invoice.balance_due).toLocaleString("en-MW");
+        const amounts=[Math.min(1000,Number(invoice.balance_due)),Math.min(5000,Number(invoice.balance_due)),Number(invoice.balance_due)].filter((v,i,a)=>v>0&&a.indexOf(v)===i);
+        $("#quickAmounts").innerHTML=amounts.map(v=>'<button type="button" data-amount="'+v+'">'+(v===Number(invoice.balance_due)?"Pay full balance":money(v))+'</button>').join("");
+        $("#quickAmounts").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ $("#amount").value=b.dataset.amount; scheduleCheckoutPreparation(); }));
       }
       $("#payments").innerHTML=(d.payments||[]).length?(d.payments.map(p=>'<div class="payment"><span>'+esc(p.period_key||new Date(p.paid_at||p.created_at).toLocaleDateString())+' · <span class="badge">Verified</span>'+(p.receipt_number?' · '+esc(p.receipt_number):'')+'</span><strong>'+money(p.amount)+'</strong>'+(p.receipt_number?'<button class="smallbtn" type="button" data-view-receipt="'+esc(p.id)+'">View receipt</button>':'')+'</div>').join("")):'<p class="muted">No completed payments yet.</p>';
       const qrResponse = await fetch("/api/public/invoices/"+encodeURIComponent(id)+"/qr",{cache:"no-store"});
@@ -63,9 +65,63 @@
       const p=new URLSearchParams(location.search).get("payment");
       if(p==="checking") setMessage("Checking payment status…");
       if(p==="success") setMessage("Payment verified.");
+      scheduleCheckoutPreparation();
     } catch(e){$("#title").textContent="Invoice unavailable";setMessage(e.message,true);$("#payForm").classList.add("hidden");}
   }
-
+  function checkoutDetails() {
+    if (!invoice) return null;
+    const amount = Number($("#amount").value);
+    const email = $("#payerEmail").value.trim();
+    if (invoice.recurring_monthly && !selectedPeriod) return null;
+    if (!Number.isFinite(amount) || amount < 1 || (!invoice.recurring_monthly && amount > Number(invoice.balance_due))) return null;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+    return { amount, email, signature: JSON.stringify({amount,email:email.toLowerCase(),period:invoice.recurring_monthly?selectedPeriod:null}) };
+  }
+  async function prepareCheckout() {
+    const details=checkoutDetails();
+    if (!details) return;
+    const {amount,email,signature}=details;
+    if (preparedCheckout && preparedCheckoutSignature===signature) return;
+    if (preparing) return;
+    preparing=true;
+    const button=$("#payButton");
+    button.disabled=true;
+    button.textContent="Preparing payment…";
+    try {
+      if (window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu checkout could not load. Check your connection and refresh.");
+      const paymentUrl=invoice.recurring_monthly
+        ? "/api/public/invoices/"+encodeURIComponent(id)+"/periods/"+encodeURIComponent(selectedPeriod)+"/payments"
+        : "/api/public/invoices/"+encodeURIComponent(id)+"/payments";
+      const response=await fetch(paymentUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email})});
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.error||"Could not prepare payment.");
+      if(!data.payment||!data.payment.checkout||!data.payment.checkout.public_key) throw new Error("Secure checkout could not be prepared.");
+      const latest=checkoutDetails();
+      if(!latest||latest.signature!==signature) return;
+      preparedCheckout=data.payment.checkout;
+      preparedCheckoutSignature=signature;
+      button.disabled=false;
+      button.textContent="Pay Now";
+      setMessage("Your payment is ready. Tap Pay Now to open secure checkout.");
+    } catch(error) {
+      preparedCheckout=null; preparedCheckoutSignature=null;
+      button.disabled=false;
+      button.textContent="Pay Now";
+      setMessage(error.message,true);
+    } finally { preparing=false; }
+  }
+  function scheduleCheckoutPreparation() {
+    preparedCheckout=null;
+    preparedCheckoutSignature=null;
+    if(prepareTimer) clearTimeout(prepareTimer);
+    const button=$("#payButton");
+    if(button){button.disabled=true;button.textContent="Preparing payment…";}
+    if(!checkoutDetails()) {
+      if(button){button.disabled=false;button.textContent="Pay Now";}
+      return;
+    }
+    prepareTimer=setTimeout(()=>prepareCheckout(),350);
+  }
   function receiptMarkup(r) {
     const rows = [
       ["Receipt number",r.receipt_number],["Invoice",r.invoice_number],["Description",r.description],
@@ -126,75 +182,28 @@
     if(!button)return;
     selectedPeriod=button.dataset.period;
     $("#monthlyPeriods").querySelectorAll("[data-period]").forEach(x=>x.classList.toggle("selected",x===button));
-    setMessage("Selected "+button.closest(".payment").querySelector("strong").textContent+". Enter your email, then continue to payment.");
+    setMessage("Selected "+button.closest(".payment").querySelector("strong").textContent+". Enter your email to prepare payment.");
     $("#payerEmail").focus();
+    scheduleCheckoutPreparation();
   });
-  $("#payForm").addEventListener("submit", async e => {
+  $("#payerEmail").addEventListener("input",scheduleCheckoutPreparation);
+  $("#amount").addEventListener("input",scheduleCheckoutPreparation);
+  $("#payForm").addEventListener("submit",e=>{
     e.preventDefault();
-    if (!invoice) return;
-    const amount = Number($("#amount").value);
-    const email = $("#payerEmail").value.trim();
-    if (invoice.recurring_monthly && !selectedPeriod) { setMessage("Select the month you are paying for first.", true); return; }
-    if (!Number.isFinite(amount) || amount < 1 || (!invoice.recurring_monthly && amount > Number(invoice.balance_due))) { setMessage("Enter a valid payment amount.", true); return; }
-    if (!email) { setMessage("Enter your email address first.", true); return; }
-    const signature = JSON.stringify({ amount, email: email.toLowerCase(), period: invoice.recurring_monthly ? selectedPeriod : null });
-
-    // The SDK must be invoked directly from a user gesture. First tap prepares
-    // the authorised transaction; the next tap opens the popup synchronously.
-    if (preparedCheckout && preparedCheckoutSignature === signature) {
-      if (window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout !== "function") {
-        setMessage("PayChangu popup did not load in this browser. Refresh the invoice and try again.", true);
-        return;
-      }
-      try {
-        window.PaychanguCheckout(preparedCheckout);
-        setMessage("Complete the payment in the PayChangu popup. Your invoice will update after verification.");
-        const button = $("#payButton");
-        button.disabled = true;
-        button.textContent = "Checkout opened — complete payment";
-        window.setTimeout(() => {
-          button.disabled = false;
-          preparedCheckout = null;
-          preparedCheckoutSignature = null;
-          button.textContent = invoice.recurring_monthly ? "Pay selected month →" : "Continue to secure payment →";
-        }, 15000);
-      } catch (err) {
-        setMessage("PayChangu could not open the popup: " + (err.message || "Please try again."), true);
-      }
+    const details=checkoutDetails();
+    if(!details){setMessage(invoice&&invoice.recurring_monthly&&!selectedPeriod?"Select the month you are paying for first.":"Enter a valid amount and email address.",true);return;}
+    if(!preparedCheckout||preparedCheckoutSignature!==details.signature){
+      setMessage("Your payment is still being prepared. The Pay Now button will be ready in a moment.");
+      scheduleCheckoutPreparation();
       return;
     }
-
-    const button = $("#payButton");
-    button.disabled = true;
-    button.textContent = "Preparing secure checkout…";
-    setMessage("Preparing your payment. You’ll tap once more to open the PayChangu popup.");
-    try {
-      if (window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout !== "function") {
-        throw new Error("PayChangu popup did not load in this browser. Check your internet connection, then refresh the invoice.");
-      }
-      const paymentUrl = invoice.recurring_monthly
-        ? ("/api/public/invoices/" + encodeURIComponent(id) + "/periods/" + encodeURIComponent(selectedPeriod) + "/payments")
-        : ("/api/public/invoices/" + encodeURIComponent(id) + "/payments");
-      const response = await fetch(paymentUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, email })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not prepare payment.");
-      if (!data.payment || !data.payment.checkout || !data.payment.checkout.public_key) {
-        throw new Error("Secure popup checkout could not be prepared. Please try again.");
-      }
-      preparedCheckout = data.payment.checkout;
-      preparedCheckoutSignature = signature;
-      button.disabled = false;
-      button.textContent = "Open PayChangu popup →";
-      setMessage("Your checkout is ready. Tap “Open PayChangu popup” to continue securely.");
-    } catch (err) {
-      setMessage(err.message, true);
-      button.disabled = false;
-      button.textContent = invoice.recurring_monthly ? "Pay selected month →" : "Continue to secure payment →";
+    if(window.paychanguSdkLoadFailed||typeof window.PaychanguCheckout!=="function"){
+      setMessage("PayChangu checkout did not load. Refresh the invoice and try again.",true);return;
     }
+    try {
+      window.PaychanguCheckout(preparedCheckout);
+      setMessage("Complete your payment in the PayChangu popup.");
+    } catch(error) { setMessage("PayChangu could not open checkout: "+(error.message||"Please try again."),true); }
   });
   const returnParams = new URLSearchParams(location.search);
   if (returnParams.has("payment") || returnParams.has("tx_ref")) {
