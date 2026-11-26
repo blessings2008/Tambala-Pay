@@ -8,6 +8,7 @@
   let preparedCheckoutSignature = null;
   let prepareTimer = null;
   let preparing = false;
+  let preparingSignature = null;
   const money = (v) => new Intl.NumberFormat("en-MW",{style:"currency",currency:"MWK",maximumFractionDigits:0}).format(Number(v||0));
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const setMessage = (text, error=false) => { $("#message").textContent=text; $("#message").className="message"+(error?" error":""); };
@@ -84,6 +85,7 @@
     if (preparedCheckout && preparedCheckoutSignature===signature) return;
     if (preparing) return;
     preparing=true;
+    preparingSignature=signature;
     const button=$("#payButton");
     button.disabled=true;
     button.textContent="Preparing payment…";
@@ -108,7 +110,12 @@
       button.disabled=false;
       button.textContent="Pay Now";
       setMessage(error.message,true);
-    } finally { preparing=false; }
+    } finally {
+      preparing=false;
+      preparingSignature=null;
+      const latest=checkoutDetails();
+      if(latest && latest.signature!==signature) scheduleCheckoutPreparation();
+    }
   }
   function scheduleCheckoutPreparation() {
     preparedCheckout=null;
