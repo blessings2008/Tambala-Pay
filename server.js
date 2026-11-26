@@ -338,34 +338,37 @@ app.post("/api/public/invoices/:id/verify-payment", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-async function createInvoiceHostedCheckout({ invoice, paymentId, txRef, amount, email, description }) {
+function buildInvoicePopupCheckout({ invoice, txRef, amount, email, description, paymentId, period }) {
   const customerParts = String(invoice.customer_name || "Customer").trim().split(/\s+/);
-  const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id);
-  const payload = {
-    amount: String(amount), currency: invoice.currency || "MWK", tx_ref: txRef,
-    first_name: customerParts[0] || "Customer", last_name: customerParts.slice(1).join(" "), email,
-    callback_url: APP_BASE_URL + "/api/paychangu/webhook", return_url: invoiceUrl,
-    customization: { title: "Tambala Pay", description },
-    meta: { invoice_id: invoice.id, invoice_number: invoice.invoice_number, payment_id: paymentId }
+  const invoiceUrl = APP_BASE_URL + "/invoice/" + encodeURIComponent(invoice.id) + "?payment=checking";
+  return {
+    public_key: PAYCHANGU_PUBLIC_KEY,
+    tx_ref: txRef,
+    amount,
+    currency: invoice.currency || "MWK",
+    callback_url: invoiceUrl,
+    return_url: invoiceUrl,
+    customer: {
+      email,
+      first_name: customerParts[0] || "Customer",
+      last_name: customerParts.slice(1).join(" ")
+    },
+    customization: {
+      title: "Tambala Pay",
+      description
+    },
+    meta: {
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      payment_id: paymentId,
+      ...(period ? { billing_period: period } : {})
+    }
   };
-  const response = await fetch("https://api.paychangu.com/payment", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: "Bearer " + PAYCHANGU_SECRET_KEY },
-    body: JSON.stringify(payload), signal: AbortSignal.timeout(20000)
-  });
-  const result = await response.json().catch(() => ({}));
-  const checkoutUrl = result.data && result.data.checkout_url;
-  if (!response.ok || result.status !== "success" || !checkoutUrl || !checkoutUrl.startsWith("https://")) {
-    await pool.query("UPDATE invoice_payments SET status='failed', verification_note=$2, updated_at=NOW() WHERE id=$1", [paymentId, "Could not initialize PayChangu hosted checkout."]);
-    throw new Error("PayChangu could not create a secure checkout link. Please try again or contact the business.");
-  }
-  await pool.query("UPDATE invoice_payments SET checkout_url=$2, status='pending', verification_note=NULL, updated_at=NOW() WHERE id=$1", [paymentId, checkoutUrl]);
-  return checkoutUrl;
 }
 
 app.post("/api/public/invoices/:id/periods/:period/payments", async (req, res, next) => {
   try {
-    if (!PAYCHANGU_SECRET_KEY) return res.status(503).json({ error: "Online checkout is not configured yet." });
+    if (!PAYCHANGU_SECRET_KEY || !PAYCHANGU_PUBLIC_KEY) return res.status(503).json({ error: "Online checkout is not configured yet." });
     if (process.env.NODE_ENV === "production" && !APP_BASE_URL.startsWith("https://")) return res.status(500).json({ error: "Payment service configuration error." });
     const period = String(req.params.period || "");
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: "Choose a valid billing month." });
@@ -383,20 +386,19 @@ app.post("/api/public/invoices/:id/periods/:period/payments", async (req, res, n
     let paymentId, txRef;
     if (existing.rowCount && existing.rows[0].status === "pending") {
       paymentId = existing.rows[0].id; txRef = existing.rows[0].tx_ref;
-      if (existing.rows[0].checkout_url) return res.status(200).json({ payment: { id: paymentId, tx_ref: txRef, amount: toMoney(invoice.total_amount), checkout_url: existing.rows[0].checkout_url } });
     } else {
       paymentId = crypto.randomUUID(); txRef = await makeInvoicePaymentReference();
       await pool.query("INSERT INTO invoice_payments (id,invoice_id,tx_ref,amount,period_key) VALUES ($1,$2,$3,$4,$5)", [paymentId,invoice.id,txRef,toMoney(invoice.total_amount),period]);
     }
     const amount = toMoney(invoice.total_amount);
-    const checkoutUrl = await createInvoiceHostedCheckout({ invoice, paymentId, txRef, amount, email, description: invoice.invoice_number+" — "+period+" monthly payment" });
-    return res.status(201).json({ payment: { id: paymentId, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout_url: checkoutUrl } });
+    const checkout = buildInvoicePopupCheckout({ invoice, paymentId, txRef, amount, email, description: invoice.invoice_number+" — "+period+" monthly payment", period });
+    return res.status(201).json({ payment: { id: paymentId, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout } });
   } catch(error) { next(error); }
 });
 
 app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
   try {
-    if (!PAYCHANGU_SECRET_KEY) return res.status(503).json({ error: "Online checkout is not configured yet. Please contact the business that issued this invoice." });
+    if (!PAYCHANGU_SECRET_KEY || !PAYCHANGU_PUBLIC_KEY) return res.status(503).json({ error: "Online checkout is not configured yet. Please contact the business that issued this invoice." });
     if (process.env.NODE_ENV === "production" && !APP_BASE_URL.startsWith("https://")) return res.status(500).json({ error: "Payment service configuration error." });
     const amount = toMoney(req.body.amount);
     const email = String(req.body.email || "").trim().slice(0,254);
@@ -416,14 +418,13 @@ app.post("/api/public/invoices/:id/payments", async (req, res, next) => {
     let paymentId, txRef;
     if (pending.rowCount) {
       paymentId = pending.rows[0].id; txRef = pending.rows[0].tx_ref;
-      if (pending.rows[0].checkout_url) return res.status(200).json({ payment: { id: paymentId, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout_url: pending.rows[0].checkout_url } });
     } else {
       if (amount > toMoney(invoice.available_amount)) return res.status(400).json({ error: "That amount exceeds the available balance. A previous payment attempt may still be pending. Please complete or verify that attempt before starting another payment." });
       paymentId = crypto.randomUUID(); txRef = await makeInvoicePaymentReference();
       await pool.query("INSERT INTO invoice_payments (id,invoice_id,tx_ref,amount) VALUES ($1,$2,$3,$4)", [paymentId,invoice.id,txRef,amount]);
     }
-    const checkoutUrl = await createInvoiceHostedCheckout({ invoice, paymentId, txRef, amount, email, description: invoice.invoice_number+" — "+invoice.description });
-    return res.status(201).json({ payment: { id: paymentId, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout_url: checkoutUrl } });
+    const checkout = buildInvoicePopupCheckout({ invoice, paymentId, txRef, amount, email, description: invoice.invoice_number+" — "+invoice.description });
+    return res.status(201).json({ payment: { id: paymentId, tx_ref: txRef, amount, currency: invoice.currency || "MWK", checkout } });
   } catch(error) { next(error); }
 });
 
