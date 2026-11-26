@@ -47,42 +47,62 @@ app.use("/api", apiLimiter);
 // Record a successful, HMAC-authenticated PayChangu webhook when the verification
 // endpoint itself fails. The signed event must match a pending local payment exactly.
 async function recordSignedWebhookPayment(eventData) {
-  const txRef = String(eventData.tx_ref || eventData.txRef || "").trim();
-  if (!txRef || String(eventData.status || "").toLowerCase() !== "success") {
-    throw new Error("Webhook does not contain a successful transaction reference.");
+  if (String(eventData.status || "").toLowerCase() !== "success") throw new Error("Webhook is not a successful payment.");
+  const currency = String(eventData.currency || "").trim().toUpperCase();
+  const amount = toMoney(eventData.amount);
+  if (!currency || amount === null || amount <= 0) throw new Error("Webhook amount or currency is invalid.");
+  const expectedMode = PAYCHANGU_PUBLIC_KEY.startsWith("pub-test-") ? "test" : PAYCHANGU_PUBLIC_KEY.startsWith("pub-live-") ? "live" : "";
+  if (expectedMode && String(eventData.mode || "").toLowerCase() !== expectedMode) throw new Error("Webhook mode does not match configured PayChangu key.");
+
+  const suppliedTxRef = String(eventData.tx_ref || eventData.txRef || "").trim();
+  const providerReference = String(eventData.reference || "").trim();
+  const mobileMoneyTransaction = String(eventData.authorization?.mobile_money?.trans_id || "").trim();
+  let local = { rowCount: 0, rows: [] };
+  let isInvoicePayment = false;
+
+  if (suppliedTxRef) {
+    const legacy = await pool.query("SELECT * FROM payment_requests WHERE tx_ref = $1", [suppliedTxRef]);
+    const modern = legacy.rowCount ? { rowCount: 0, rows: [] } : await pool.query("SELECT * FROM invoice_payments WHERE tx_ref = $1", [suppliedTxRef]);
+    isInvoicePayment = !legacy.rowCount && modern.rowCount > 0;
+    local = legacy.rowCount ? legacy : modern;
   }
 
-  const legacy = await pool.query("SELECT * FROM payment_requests WHERE tx_ref = $1", [txRef]);
-  const modern = legacy.rowCount ? { rowCount: 0, rows: [] } : await pool.query("SELECT * FROM invoice_payments WHERE tx_ref = $1", [txRef]);
-  const isInvoicePayment = !legacy.rowCount && modern.rowCount > 0;
-  const local = legacy.rowCount ? legacy : modern;
-  if (!local.rowCount) throw new Error("Signed webhook reference does not match a local payment.");
+  // web.payment events omit merchant tx_ref; only auto-match a unique recent pending
+  // invoice payment with an exact amount and currency. Never guess across multiple invoices.
+  if (!local.rowCount && String(eventData.event_type || "").toLowerCase() === "web.payment") {
+    const candidates = await pool.query(
+      `SELECT p.*, 'invoice_payments' AS source_table FROM invoice_payments p
+       WHERE p.status = 'pending' AND p.amount = $1 AND UPPER(TRIM(p.currency)) = $2 AND p.created_at >= NOW() - INTERVAL '24 hours'
+       UNION ALL
+       SELECT p.*, 'payment_requests' AS source_table FROM payment_requests p
+       WHERE p.status = 'pending' AND p.amount = $1 AND UPPER(TRIM(p.currency)) = $2 AND p.created_at >= NOW() - INTERVAL '24 hours'
+       LIMIT 2`, [amount, currency]);
+    if (candidates.rowCount !== 1) throw new Error(candidates.rowCount ? "Webhook matches multiple pending payments; refusing ambiguous reconciliation." : "No recent pending payment matches this successful webhook.");
+    local = { rowCount: 1, rows: [candidates.rows[0]] };
+    isInvoicePayment = candidates.rows[0].source_table === "invoice_payments";
+  }
 
+  if (!local.rowCount && providerReference) {
+    const legacy = await pool.query("SELECT * FROM payment_requests WHERE provider_reference = $1", [providerReference]);
+    const modern = legacy.rowCount ? { rowCount: 0, rows: [] } : await pool.query("SELECT * FROM invoice_payments WHERE provider_reference = $1", [providerReference]);
+    isInvoicePayment = !legacy.rowCount && modern.rowCount > 0;
+    local = legacy.rowCount ? legacy : modern;
+  }
+  if (!local.rowCount) throw new Error("Signed webhook could not be matched to a local payment.");
   const payment = local.rows[0];
-  if (String(eventData.currency || "").toUpperCase() !== String(payment.currency).trim().toUpperCase()
-      || toMoney(eventData.amount) !== toMoney(payment.amount)) {
-    throw new Error("Signed webhook amount or currency does not match the local payment.");
-  }
-
-  const expectedMode = PAYCHANGU_PUBLIC_KEY.startsWith("pub-test-") ? "test"
-    : PAYCHANGU_PUBLIC_KEY.startsWith("pub-live-") ? "live" : "";
-  if (expectedMode && String(eventData.mode || "").toLowerCase() !== expectedMode) {
-    throw new Error("Signed webhook mode does not match the configured PayChangu key.");
-  }
+  if (String(payment.currency || "").trim().toUpperCase() !== currency || toMoney(payment.amount) !== amount) throw new Error("Webhook amount or currency does not match local payment.");
 
   const table = isInvoicePayment ? "invoice_payments" : "payment_requests";
   const receiptNumber = payment.receipt_number || ("REC-" + new Date().getFullYear() + "-" + crypto.randomBytes(4).toString("hex").toUpperCase());
   await pool.query(
-    "UPDATE " + table + " SET status = 'paid', provider_reference = $2, receipt_number = COALESCE(receipt_number, $3), paid_at = COALESCE(paid_at, NOW()), updated_at = NOW(), verification_note = $4 WHERE tx_ref = $1 AND status <> 'paid'",
-    [txRef, String(eventData.reference || ""), receiptNumber, "Confirmed from HMAC-authenticated PayChangu success webhook; verification endpoint unavailable."]
+    "UPDATE " + table + " SET status = 'paid', provider_reference = COALESCE(NULLIF($2, ''), provider_reference), receipt_number = COALESCE(receipt_number, $3), paid_at = COALESCE(paid_at, NOW()), updated_at = NOW(), verification_note = $4 WHERE tx_ref = $1 AND status <> 'paid'",
+    [payment.tx_ref, providerReference || mobileMoneyTransaction, receiptNumber, "Confirmed from HMAC-authenticated PayChangu success webhook."]
   );
-  if (isInvoicePayment) {
-    await pool.query(`UPDATE invoices SET status = CASE
-      WHEN recurring_monthly THEN 'open'
-      WHEN (SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'paid') >= total_amount THEN 'paid'
-      ELSE 'partially_paid' END, updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`, [payment.invoice_id]);
-  }
-  return { txRef, isInvoicePayment };
+  if (isInvoicePayment) await pool.query(`UPDATE invoices SET status = CASE
+    WHEN recurring_monthly THEN 'open'
+    WHEN (SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'paid') >= total_amount THEN 'paid'
+    ELSE 'partially_paid' END, updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`, [payment.invoice_id]);
+  return { txRef: payment.tx_ref, isInvoicePayment };
 }
 
 // Keep the raw webhook body so the HMAC check uses the exact bytes PayChangu sent.
@@ -100,19 +120,19 @@ app.post("/api/paychangu/webhook", express.raw({ type: "application/json", limit
     const payload = JSON.parse(req.body.toString("utf8"));
     const eventData = payload.data || payload;
     const txRef = String(eventData.tx_ref || eventData.txRef || "").trim();
-    if (!txRef) return res.status(400).send("Missing transaction reference.");
-
-    try {
-      const verified = await verifyAndUpdatePayment(txRef);
-      if (verified.found && verified.status === "success") return res.sendStatus(200);
-      if (verified.found && ["failed", "cancelled", "canceled"].includes(String(verified.status || "").toLowerCase())) return res.sendStatus(200);
-      throw new Error("Provider verification did not confirm a final successful status.");
-    } catch (verificationError) {
-      console.error("PayChangu API verification failed for signed webhook; checking signed event:", verificationError.message);
-      const recorded = await recordSignedWebhookPayment(eventData);
-      console.warn("Payment recorded from signed PayChangu webhook fallback:", recorded.txRef);
-      return res.sendStatus(200);
+    if (txRef) {
+      try {
+        const verified = await verifyAndUpdatePayment(txRef);
+        if (verified.found && verified.status === "success") return res.sendStatus(200);
+        if (verified.found && ["failed", "cancelled", "canceled"].includes(String(verified.status || "").toLowerCase())) return res.sendStatus(200);
+        throw new Error("Provider verification did not confirm a final successful status.");
+      } catch (verificationError) {
+        console.error("PayChangu API verification failed for signed webhook; checking signed event:", verificationError.message);
+      }
     }
+    const recorded = await recordSignedWebhookPayment(eventData);
+    console.log("Recorded signed PayChangu webhook:", recorded.txRef);
+    return res.sendStatus(200);
   } catch (error) {
     console.error("PayChangu webhook error:", error.message);
     return res.sendStatus(500);
@@ -154,7 +174,8 @@ async function makeInvoicePaymentReference() {
 }
 
 function toMoney(value) {
-  const number = Number(value);
+  const normalized = typeof value === "string" ? value.replace(/,/g, "").trim() : value;
+  const number = Number(normalized);
   if (!Number.isFinite(number)) return null;
   return Math.round(number * 100) / 100;
 }
