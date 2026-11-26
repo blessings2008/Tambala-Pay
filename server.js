@@ -71,15 +71,13 @@ async function recordSignedWebhookPayment(eventData) {
   // invoice payment with an exact amount and currency. Never guess across multiple invoices.
   if (!local.rowCount && String(eventData.event_type || "").toLowerCase() === "web.payment") {
     const candidates = await pool.query(
-      `SELECT p.*, 'invoice_payments' AS source_table FROM invoice_payments p
-       WHERE p.status = 'pending' AND p.amount = $1 AND UPPER(TRIM(p.currency)) = $2 AND p.created_at >= NOW() - INTERVAL '24 hours'
-       UNION ALL
-       SELECT p.*, 'payment_requests' AS source_table FROM payment_requests p
-       WHERE p.status = 'pending' AND p.amount = $1 AND UPPER(TRIM(p.currency)) = $2 AND p.created_at >= NOW() - INTERVAL '24 hours'
-       LIMIT 2`, [amount, currency]);
-    if (candidates.rowCount !== 1) throw new Error(candidates.rowCount ? "Webhook matches multiple pending payments; refusing ambiguous reconciliation." : "No recent pending payment matches this successful webhook.");
-    local = { rowCount: 1, rows: [candidates.rows[0]] };
-    isInvoicePayment = candidates.rows[0].source_table === "invoice_payments";
+      `SELECT p.* FROM invoice_payments p
+       WHERE p.status = 'pending' AND p.amount = $1 AND UPPER(TRIM(p.currency)) = $2
+         AND p.created_at >= NOW() - INTERVAL '24 hours'
+       ORDER BY p.created_at DESC LIMIT 2`, [amount, currency]);
+    if (candidates.rowCount !== 1) throw new Error(candidates.rowCount ? "Webhook matches multiple pending invoice payments; refusing ambiguous reconciliation." : "No recent pending invoice payment matches this successful webhook.");
+    local = candidates;
+    isInvoicePayment = true;
   }
 
   if (!local.rowCount && providerReference) {
