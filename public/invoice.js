@@ -133,23 +133,18 @@
     if (invoice.recurring_monthly && !selectedPeriod) { setMessage("Select the month you are paying for first.",true); return; }
     if(!Number.isFinite(amount)||amount<1||(!invoice.recurring_monthly && amount>Number(invoice.balance_due))){setMessage("Enter a valid payment amount.",true);return;}
     const b=$("#payButton");
-    // Open synchronously within the user gesture; browsers block delayed popups after fetch().
-    const checkoutWindow=window.open("about:blank","_blank");
-    b.disabled=true;b.textContent="Preparing secure checkout…";setMessage("");
+    const b=$("#payButton");b.disabled=true;b.textContent="Preparing secure checkout…";setMessage("");
     try{
+      if(window.paychanguSdkLoadFailed || typeof window.PaychanguCheckout!=="function") throw new Error("PayChangu popup did not load in this browser. Check your internet connection, then refresh the invoice and try again.");
       const paymentUrl=invoice.recurring_monthly?("/api/public/invoices/"+encodeURIComponent(id)+"/periods/"+encodeURIComponent(selectedPeriod)+"/payments"):("/api/public/invoices/"+encodeURIComponent(id)+"/payments");
       const r=await fetch(paymentUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({amount,email:$("#payerEmail").value.trim()})});
       const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not start payment.");
-      if(!d.payment||!d.payment.checkout_url||!d.payment.checkout_url.startsWith("https://")) throw new Error("Secure checkout could not be prepared. Please try again.");
-      if(checkoutWindow && !checkoutWindow.closed) checkoutWindow.location.replace(d.payment.checkout_url);
-      else { setMessage("Your browser blocked the new tab. Opening secure checkout in this tab."); window.location.assign(d.payment.checkout_url); return; }
-      b.textContent="Checkout opened — complete payment in the new tab";
-      setMessage("Complete payment in the secure PayChangu tab. Return here afterward; your invoice updates after verification.");
+      if(!d.payment||!d.payment.checkout||!d.payment.checkout.public_key) throw new Error("Secure popup checkout could not be prepared. Please try again.");
+      window.PaychanguCheckout(d.payment.checkout);
+      b.textContent="Checkout opened — complete payment in the popup";
+      setMessage("Complete the payment in the PayChangu popup. Your invoice will update after verification.");
       window.setTimeout(()=>{b.disabled=false;b.textContent="Continue to secure payment →";},15000);
-    }catch(err){
-      if(checkoutWindow && !checkoutWindow.closed) checkoutWindow.close();
-      setMessage(err.message,true);b.disabled=false;b.textContent="Continue to secure payment →";
-    }
+    }catch(err){setMessage(err.message,true);b.disabled=false;b.textContent="Continue to secure payment →";}
   });
   const returnParams = new URLSearchParams(location.search);
   if (returnParams.has("payment") || returnParams.has("tx_ref")) {
