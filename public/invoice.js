@@ -195,8 +195,7 @@
   });
   $("#payerEmail").addEventListener("input",scheduleCheckoutPreparation);
   $("#amount").addEventListener("input",scheduleCheckoutPreparation);
-  $("#payForm").addEventListener("submit",e=>{
-    e.preventDefault();
+  $("#payButton").addEventListener("click",()=>{
     const details=checkoutDetails();
     if(!details){setMessage(invoice&&invoice.recurring_monthly&&!selectedPeriod?"Select the month you are paying for first.":"Enter a valid amount and email address.",true);return;}
     if(!preparedCheckout||preparedCheckoutSignature!==details.signature){
