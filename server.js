@@ -216,6 +216,54 @@ async function verifyAndUpdatePayment(txRef) {
   return { found: true, status: providerStatus };
 }
 
+async function verifyAndUpdateMobileMoneyCharge({ chargeId, txRef, invoiceId }) {
+  if (!PAYCHANGU_SECRET_KEY) throw new Error("PayChangu secret key is not configured.");
+  const local = await pool.query(
+    "SELECT * FROM invoice_payments WHERE invoice_id = $1 AND tx_ref = $2",
+    [invoiceId, txRef]
+  );
+  if (!local.rowCount) return { found: false };
+  const response = await fetch("https://api.paychangu.com/mobile-money/payments/" + encodeURIComponent(chargeId) + "/verify", {
+    method: "GET",
+    headers: { Accept: "application/json", Authorization: "Bearer " + PAYCHANGU_SECRET_KEY },
+    signal: AbortSignal.timeout(15000)
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    console.error("PayChangu Mobile Money charge verification rejected request:", response.status, responseText.slice(0, 500));
+    throw new Error("PayChangu Mobile Money verification returned HTTP " + response.status);
+  }
+  let result;
+  try { result = JSON.parse(responseText); }
+  catch { throw new Error("PayChangu Mobile Money verification returned invalid JSON."); }
+  const data = result.data || {};
+  const status = String(data.status || result.status || "").toLowerCase();
+  const currency = String(data.currency || "").toUpperCase();
+  const normalizedCurrency = currency === "MK" ? "MWK" : currency;
+  const expectedCurrency = String(local.rows[0].currency || "MWK").trim().toUpperCase();
+  const providerAmount = toMoney(data.amount);
+  const expectedAmount = toMoney(local.rows[0].amount);
+  if (String(data.charge_id || "") !== chargeId
+      || normalizedCurrency !== expectedCurrency
+      || providerAmount === null
+      || providerAmount < expectedAmount) {
+    throw new Error("Verified Mobile Money charge did not match the expected charge ID, currency, and amount.");
+  }
+  if (status !== "success" && status !== "successful") {
+    return { found: true, status: status || "pending" };
+  }
+  const receiptNumber = local.rows[0].receipt_number || ("REC-" + new Date().getFullYear() + "-" + crypto.randomBytes(4).toString("hex").toUpperCase());
+  await pool.query(
+    "UPDATE invoice_payments SET status = 'paid', provider_reference = $2, receipt_number = COALESCE(receipt_number, $3), paid_at = COALESCE(paid_at, NOW()), updated_at = NOW(), verification_note = NULL WHERE invoice_id = $4 AND tx_ref = $1 AND status <> 'paid'",
+    [txRef, String(data.ref_id || data.trans_id || chargeId), receiptNumber, invoiceId]
+  );
+  await pool.query(`UPDATE invoices SET status = CASE
+    WHEN recurring_monthly THEN 'open'
+    WHEN (SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id = invoices.id AND status = 'paid') >= total_amount THEN 'paid'
+    ELSE 'partially_paid' END, updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`, [invoiceId]);
+  return { found: true, status: "success" };
+}
+
 async function initializeDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payment_requests (
@@ -325,13 +373,16 @@ app.get("/api/public/invoices/:id", async (req, res, next) => {
 app.post("/api/public/invoices/:id/verify-payment", async (req, res, next) => {
   try {
     const txRef = String(req.body.tx_ref || "").trim().slice(0, 80);
+    const chargeId = String(req.body.charge_id || "").trim().slice(0, 120);
     if (!txRef) return res.status(400).json({ error: "Missing payment reference." });
     const local = await pool.query(
       "SELECT id FROM invoice_payments WHERE invoice_id = $1 AND tx_ref = $2",
       [req.params.id, txRef]
     );
     if (!local.rowCount) return res.status(404).json({ error: "Payment reference was not found for this invoice." });
-    const verified = await verifyAndUpdatePayment(txRef);
+    const verified = chargeId
+      ? await verifyAndUpdateMobileMoneyCharge({ chargeId, txRef, invoiceId: req.params.id })
+      : await verifyAndUpdatePayment(txRef);
     if (!verified.found) return res.status(404).json({ error: "Payment record was not found." });
     res.set("Cache-Control", "no-store");
     return res.json({ status: verified.status || "pending" });
